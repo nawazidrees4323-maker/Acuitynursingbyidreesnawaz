@@ -129,75 +129,87 @@ export default function CourseManagement() {
         </div>
       </div>
 
-      {/* Courses Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-8">
+      {/* Courses Grid Grouped by Semester */}
+      <div className="space-y-12">
         {loading ? (
-          [1,2,3].map(i => <div key={i} className="h-64 bg-gray-100 rounded-3xl animate-pulse"></div>)
-        ) : courses.map((course) => (
-          <motion.div 
-            key={course.id}
-            whileHover={{ y: -5 }}
-            className="bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden flex flex-col"
-          >
-            <div className="p-8 flex-1">
-              <div className="flex items-start justify-between mb-4">
-                <div className="p-3 bg-blue-50 text-blue-600 rounded-2xl">
-                  <GraduationCap className="w-6 h-6" />
-                </div>
-                <span className="px-3 py-1 bg-gray-100 text-gray-500 rounded-lg text-xs font-black uppercase tracking-widest">
-                  Semester {course.semester}
-                </span>
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-8">
+            {[1,2,3].map(i => <div key={i} className="h-64 bg-gray-100 rounded-3xl animate-pulse"></div>)}
+          </div>
+        ) : (
+          Array.from(new Set(courses.map(c => c.semester))).sort((a: any, b: any) => a - b).map(semester => (
+            <div key={semester} className="space-y-6">
+              <div className="flex items-center gap-4">
+                <div className="h-px flex-1 bg-gray-100"></div>
+                <h2 className="text-sm font-black text-gray-400 uppercase tracking-[0.2em]">Semester {semester}</h2>
+                <div className="h-px flex-1 bg-gray-100"></div>
               </div>
-              <h3 className="text-xl font-black text-gray-900 mb-2">{course.name}</h3>
-              <p className="text-gray-500 text-sm font-medium line-clamp-2 mb-6">{course.description}</p>
-              
-              <div className="space-y-4">
-                <div className="flex items-center gap-2 text-sm font-bold text-gray-600">
-                  <User className="w-4 h-4 text-gray-400" />
-                  {teachers.find(t => t.uid === course.teacherId)?.name || 'No teacher assigned'}
-                </div>
-                <div className="pt-4 border-t border-gray-50">
-                  <p className="text-xs font-black text-gray-400 uppercase tracking-widest mb-3">Subjects</p>
-                  <div className="flex flex-wrap gap-2">
-                    {subjects.filter(s => s.courseId === course.id).map(subject => (
-                      <span key={subject.id} className="px-3 py-1 bg-blue-50 text-blue-600 rounded-lg text-xs font-bold">
-                        {subject.name}
-                      </span>
-                    ))}
-                    {subjects.filter(s => s.courseId === course.id).length === 0 && (
-                      <span className="text-xs text-gray-400 italic">No subjects added</span>
-                    )}
-                  </div>
-                </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-8">
+                {courses.filter(c => c.semester === semester).map((course) => (
+                  <motion.div 
+                    key={course.id}
+                    whileHover={{ y: -5 }}
+                    className="bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden flex flex-col"
+                  >
+                    <div className="p-8 flex-1">
+                      <div className="flex items-start justify-between mb-4">
+                        <div className="p-3 bg-blue-50 text-blue-600 rounded-2xl">
+                          <GraduationCap className="w-6 h-6" />
+                        </div>
+                      </div>
+                      <h3 className="text-xl font-black text-gray-900 mb-2">{course.name}</h3>
+                      <p className="text-gray-500 text-sm font-medium line-clamp-2 mb-6">{course.description}</p>
+                      
+                      <div className="space-y-4">
+                        <div className="flex items-center gap-2 text-sm font-bold text-gray-600">
+                          <User className="w-4 h-4 text-gray-400" />
+                          {teachers.find(t => t.uid === course.teacherId)?.name || 'No teacher assigned'}
+                        </div>
+                        <div className="pt-4 border-t border-gray-50">
+                          <p className="text-xs font-black text-gray-400 uppercase tracking-widest mb-3">Subjects</p>
+                          <div className="flex flex-wrap gap-2">
+                            {subjects.filter(s => s.courseId === course.id).map(subject => (
+                              <span key={subject.id} className="px-3 py-1 bg-blue-50 text-blue-600 rounded-lg text-xs font-bold">
+                                {subject.name}
+                              </span>
+                            ))}
+                            {subjects.filter(s => s.courseId === course.id).length === 0 && (
+                              <span className="text-xs text-gray-400 italic">No subjects added</span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="p-4 bg-gray-50/50 border-t border-gray-50 flex gap-2">
+                      <button 
+                        onClick={() => {
+                          setEditingCourse(course);
+                          setCourseForm({
+                            name: course.name,
+                            description: course.description,
+                            semester: course.semester,
+                            teacherId: course.teacherId || ''
+                          });
+                          setIsCourseModalOpen(true);
+                        }}
+                        className="flex-1 py-2 bg-white border border-gray-100 text-gray-500 rounded-xl font-bold text-sm hover:bg-gray-50 transition-all flex items-center justify-center gap-2"
+                      >
+                        <Edit2 className="w-4 h-4" />
+                        Edit
+                      </button>
+                      <button 
+                        onClick={() => handleDeleteCourse(course.id)}
+                        className="flex-1 py-2 bg-white border border-gray-100 text-red-500 rounded-xl font-bold text-sm hover:bg-red-50 transition-all flex items-center justify-center gap-2"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                        Delete
+                      </button>
+                    </div>
+                  </motion.div>
+                ))}
               </div>
             </div>
-            <div className="p-4 bg-gray-50/50 border-t border-gray-50 flex gap-2">
-              <button 
-                onClick={() => {
-                  setEditingCourse(course);
-                  setCourseForm({
-                    name: course.name,
-                    description: course.description,
-                    semester: course.semester,
-                    teacherId: course.teacherId || ''
-                  });
-                  setIsCourseModalOpen(true);
-                }}
-                className="flex-1 py-2 bg-white border border-gray-100 text-gray-500 rounded-xl font-bold text-sm hover:bg-gray-50 transition-all flex items-center justify-center gap-2"
-              >
-                <Edit2 className="w-4 h-4" />
-                Edit
-              </button>
-              <button 
-                onClick={() => handleDeleteCourse(course.id)}
-                className="flex-1 py-2 bg-white border border-gray-100 text-red-500 rounded-xl font-bold text-sm hover:bg-red-50 transition-all flex items-center justify-center gap-2"
-              >
-                <Trash2 className="w-4 h-4" />
-                Delete
-              </button>
-            </div>
-          </motion.div>
-        ))}
+          ))
+        )}
       </div>
 
       {/* Course Modal */}

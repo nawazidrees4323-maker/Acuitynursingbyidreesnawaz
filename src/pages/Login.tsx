@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { auth, googleProvider, signInWithPopup, db, doc, getDoc, setDoc, Timestamp, signInWithEmailAndPassword, createUserWithEmailAndPassword, updateProfile } from '../lib/firebase';
+import { auth, googleProvider, signInWithPopup, db, doc, getDoc, setDoc, Timestamp, signInWithEmailAndPassword, createUserWithEmailAndPassword, updateProfile, collection, query, where, getDocs } from '../lib/firebase';
 import { GraduationCap, LogIn, Mail, Lock, User, ArrowRight, Loader2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -145,6 +145,38 @@ export default function Login() {
               className="w-full pl-12 pr-4 py-4 bg-gray-50 border-2 border-transparent focus:border-blue-500 focus:bg-white rounded-2xl outline-none transition-all font-medium"
             />
           </div>
+
+          {!isRegistering && (
+            <div className="flex justify-end">
+              <button 
+                type="button"
+                onClick={async () => {
+                  if (!email) {
+                    alert('Please enter your email first');
+                    return;
+                  }
+                  try {
+                    // Find user by email and mark for reset
+                    const q = query(collection(db, 'users'), where('email', '==', email));
+                    const snap = await getDocs(q);
+                    if (snap.empty) {
+                      alert('User not found');
+                      return;
+                    }
+                    const userDoc = snap.docs[0];
+                    await setDoc(doc(db, 'users', userDoc.id), { resetRequested: true }, { merge: true });
+                    alert('Password reset request sent to Admin. Please contact your administrator.');
+                  } catch (err) {
+                    console.error(err);
+                    alert('Error sending request');
+                  }
+                }}
+                className="text-xs font-bold text-blue-600 hover:text-blue-700"
+              >
+                Forgot Password?
+              </button>
+            </div>
+          )}
 
           {error && (
             <p className="text-xs text-red-500 font-bold bg-red-50 p-3 rounded-xl border border-red-100">

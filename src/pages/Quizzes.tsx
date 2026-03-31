@@ -29,6 +29,8 @@ export default function Quizzes({ profile }: { profile: UserProfile }) {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [activeQuiz, setActiveQuiz] = useState<Quiz | null>(null);
   const [quizResults, setQuizResults] = useState<any>(null);
+  const [allResults, setAllResults] = useState<any[]>([]);
+  const [showAnalytics, setShowAnalytics] = useState(false);
 
   // New Quiz Form State
   const [isBulkMode, setIsBulkMode] = useState(false);
@@ -91,7 +93,19 @@ export default function Quizzes({ profile }: { profile: UserProfile }) {
     fetchQuizzes();
     fetchCourses();
     fetchSubjects();
+    if (profile.role === 'admin' || profile.role === 'teacher') {
+      fetchAllResults();
+    }
   }, []);
+
+  const fetchAllResults = async () => {
+    try {
+      const querySnapshot = await getDocs(collection(db, 'quiz_results'));
+      setAllResults(querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    } catch (error) {
+      console.error('Error fetching results:', error);
+    }
+  };
 
   const fetchQuizzes = async () => {
     setLoading(true);
@@ -191,17 +205,34 @@ export default function Quizzes({ profile }: { profile: UserProfile }) {
     }
   }, [activeQuiz, timeLeft, quizResults]);
 
-  const submitQuiz = () => {
+  const submitQuiz = async () => {
     if (!activeQuiz) return;
     let score = 0;
     activeQuiz.questions.forEach((q, i) => {
       if (answers[i] === q.correctAnswer) score++;
     });
-    setQuizResults({
+    
+    const resultData = {
+      quizId: activeQuiz.id,
+      quizTitle: activeQuiz.title,
+      studentId: profile.uid,
+      studentName: profile.name,
       score,
-      total: activeQuiz.questions.length,
-      percentage: (score / activeQuiz.questions.length) * 100
-    });
+      totalQuestions: activeQuiz.questions.length,
+      percentage: (score / activeQuiz.questions.length) * 100,
+      completedAt: Timestamp.now()
+    };
+
+    try {
+      await addDoc(collection(db, 'quiz_results'), resultData);
+      setQuizResults(resultData);
+      if (profile.role === 'admin' || profile.role === 'teacher') {
+        fetchAllResults();
+      }
+    } catch (error) {
+      console.error('Error saving result:', error);
+      setQuizResults(resultData);
+    }
   };
 
   return (
@@ -211,18 +242,81 @@ export default function Quizzes({ profile }: { profile: UserProfile }) {
           <h1 className="text-3xl font-black text-gray-900 tracking-tight">Quizzes & Exams</h1>
           <p className="text-gray-500 font-medium">Test your knowledge and track progress</p>
         </div>
-        {(profile.role === 'admin' || profile.role === 'teacher') && (
-          <button 
-            onClick={() => setIsModalOpen(true)}
-            className="px-6 py-3 bg-blue-600 text-white rounded-2xl font-bold hover:bg-blue-700 transition-all shadow-lg shadow-blue-100 flex items-center justify-center gap-2"
-          >
-            <Plus className="w-5 h-5" />
-            Create Quiz
-          </button>
-        )}
+        <div className="flex gap-3">
+          {(profile.role === 'admin' || profile.role === 'teacher') && (
+            <>
+              <button 
+                onClick={() => setShowAnalytics(!showAnalytics)}
+                className={`px-6 py-3 rounded-2xl font-bold transition-all flex items-center justify-center gap-2 ${
+                  showAnalytics ? 'bg-amber-100 text-amber-700' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                }`}
+              >
+                <BrainCircuit className="w-5 h-5" />
+                {showAnalytics ? 'View Quizzes' : 'View Analytics'}
+              </button>
+              <button 
+                onClick={() => setIsModalOpen(true)}
+                className="px-6 py-3 bg-blue-600 text-white rounded-2xl font-bold hover:bg-blue-700 transition-all shadow-lg shadow-blue-100 flex items-center justify-center gap-2"
+              >
+                <Plus className="w-5 h-5" />
+                Create Quiz
+              </button>
+            </>
+          )}
+        </div>
       </div>
 
-      {activeQuiz ? (
+      {showAnalytics ? (
+        <div className="bg-white rounded-[2.5rem] border border-gray-100 overflow-hidden shadow-sm">
+          <div className="p-8 border-b border-gray-100">
+            <h2 className="text-xl font-black text-gray-900">Quiz Analytics</h2>
+            <p className="text-sm text-gray-500 font-medium">Track student performance across all quizzes</p>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="bg-gray-50">
+                  <th className="px-8 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest">Student</th>
+                  <th className="px-8 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest">Quiz</th>
+                  <th className="px-8 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest">Score</th>
+                  <th className="px-8 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest">Percentage</th>
+                  <th className="px-8 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest">Date</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {allResults.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} className="px-8 py-12 text-center text-gray-400 font-medium">No results recorded yet.</td>
+                  </tr>
+                ) : (
+                  allResults.map((res) => (
+                    <tr key={res.id} className="hover:bg-gray-50 transition-all">
+                      <td className="px-8 py-5">
+                        <p className="font-bold text-gray-900">{res.studentName}</p>
+                        <p className="text-[10px] text-gray-400 font-medium">{res.studentId}</p>
+                      </td>
+                      <td className="px-8 py-5 font-bold text-gray-700">{res.quizTitle}</td>
+                      <td className="px-8 py-5 font-black text-blue-600">{res.score}/{res.totalQuestions}</td>
+                      <td className="px-8 py-5">
+                        <span className={`px-3 py-1 rounded-full text-xs font-black ${
+                          res.percentage >= 80 ? 'bg-green-100 text-green-700' :
+                          res.percentage >= 50 ? 'bg-amber-100 text-amber-700' :
+                          'bg-red-100 text-red-700'
+                        }`}>
+                          {Math.round(res.percentage)}%
+                        </span>
+                      </td>
+                      <td className="px-8 py-5 text-sm text-gray-500 font-medium">
+                        {res.completedAt?.toDate().toLocaleDateString()}
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ) : activeQuiz ? (
         <div className="bg-white rounded-[2.5rem] shadow-2xl border border-gray-100 overflow-hidden">
           {!quizResults ? (
             <div className="p-8 md:p-12">

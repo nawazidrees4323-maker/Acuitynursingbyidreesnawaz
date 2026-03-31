@@ -1,5 +1,21 @@
 {
   "entities": {
+    "QuizResult": {
+      "title": "QuizResult",
+      "description": "Represents a student's result for a quiz.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "quizId": { "type": "string" },
+        "studentId": { "type": "string" },
+        "studentName": { "type": "string" },
+        "score": { "type": "integer" },
+        "totalQuestions": { "type": "integer" },
+        "percentage": { "type": "number" },
+        "completedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["quizId", "studentId", "score", "totalQuestions", "completedAt"]
+    },
     "User": {
       "title": "User",
       "description": "Represents a user in the LMS (Admin, Teacher, or Student).",

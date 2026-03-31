@@ -3,8 +3,9 @@ import { db, collection, getDocs, query, where, Timestamp } from '../lib/firebas
 import { Users, BookOpen, Calendar, CreditCard, TrendingUp, UserCheck, UserPlus, BookCopy } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, PieChart, Pie } from 'recharts';
 import { motion } from 'motion/react';
+import ProfileSection from '../components/ProfileSection';
 
-export default function AdminDashboard() {
+export default function AdminDashboard({ profile }: { profile: any }) {
   const [stats, setStats] = useState({
     totalStudents: 0,
     totalTeachers: 0,
@@ -79,6 +80,8 @@ export default function AdminDashboard() {
 
   return (
     <div className="space-y-8">
+      <ProfileSection profile={profile} />
+      
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-black text-gray-900">Admin Dashboard</h1>

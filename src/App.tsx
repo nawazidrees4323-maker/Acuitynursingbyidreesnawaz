@@ -333,7 +333,7 @@ export default function App() {
 
 function DashboardRouter({ profile }: { profile: UserProfile }) {
   switch (profile.role) {
-    case 'admin': return <AdminDashboard />;
+    case 'admin': return <AdminDashboard profile={profile} />;
     case 'teacher': return <TeacherDashboard profile={profile} />;
     case 'student': return <StudentDashboard profile={profile} />;
     default: return <Navigate to="/login" />;

@@ -3,6 +3,7 @@ import { db, collection, getDocs, query, where, Timestamp } from '../lib/firebas
 import { BookOpen, Users, Calendar, FileText, TrendingUp, CheckCircle2, Clock, AlertCircle } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { motion } from 'motion/react';
+import ProfileSection from '../components/ProfileSection';
 
 export default function TeacherDashboard({ profile }: { profile: any }) {
   const [assignedCourses, setAssignedCourses] = useState<any[]>([]);
@@ -60,6 +61,8 @@ export default function TeacherDashboard({ profile }: { profile: any }) {
 
   return (
     <div className="space-y-8">
+      <ProfileSection profile={profile} />
+      
       <div>
         <h1 className="text-3xl font-black text-gray-900">Teacher Dashboard</h1>
         <p className="text-gray-500 font-medium">Welcome back, {profile.name}</p>

@@ -26,6 +26,7 @@ export default function UserManagement() {
   const [formData, setFormData] = useState({
     name: '',
     email: '',
+    password: '',
     role: 'student' as const,
     status: 'approved' as const,
     uid: ''
@@ -35,8 +36,8 @@ export default function UserManagement() {
     setLoading(true);
     try {
       const querySnapshot = await getDocs(collection(db, 'users'));
-      const usersData = querySnapshot.docs.map(doc => doc.data() as UserProfile);
-      setUsers(usersData);
+      const usersData = querySnapshot.docs.map(doc => ({ ...doc.data(), uid: doc.id } as UserProfile & { password?: string }));
+      setUsers(usersData as any);
     } catch (error) {
       console.error('Error fetching users:', error);
     } finally {
@@ -58,15 +59,17 @@ export default function UserManagement() {
         uid,
         name: formData.name,
         email: formData.email,
+        password: formData.password,
         role: formData.role,
         status: formData.status,
+        resetRequested: false, // Clear reset request when saved
         createdAt: editingUser ? editingUser.createdAt : Timestamp.now(),
       };
 
       await setDoc(userRef, userData, { merge: true });
       setIsModalOpen(false);
       setEditingUser(null);
-      setFormData({ name: '', email: '', role: 'student', status: 'approved', uid: '' });
+      setFormData({ name: '', email: '', password: '', role: 'student', status: 'approved', uid: '' });
       fetchUsers();
     } catch (error) {
       console.error('Error saving user:', error);
@@ -213,13 +216,20 @@ export default function UserManagement() {
                       </span>
                     </td>
                     <td className="px-8 py-6">
-                      <span className={`px-3 py-1 rounded-lg text-xs font-black uppercase tracking-widest ${
-                        user.status === 'approved' ? 'bg-green-50 text-green-600' :
-                        user.status === 'rejected' ? 'bg-red-50 text-red-600' :
-                        'bg-amber-50 text-amber-600'
-                      }`}>
-                        {user.status}
-                      </span>
+                      <div className="flex flex-col gap-1">
+                        <span className={`px-3 py-1 rounded-lg text-xs font-black uppercase tracking-widest ${
+                          user.status === 'approved' ? 'bg-green-50 text-green-600' :
+                          user.status === 'rejected' ? 'bg-red-50 text-red-600' :
+                          'bg-amber-50 text-amber-600'
+                        }`}>
+                          {user.status}
+                        </span>
+                        {(user as any).resetRequested && (
+                          <span className="px-2 py-0.5 bg-red-100 text-red-600 rounded text-[10px] font-black uppercase tracking-widest text-center">
+                            Reset Requested
+                          </span>
+                        )}
+                      </div>
                     </td>
                     <td className="px-8 py-6 text-right">
                       <div className="flex items-center justify-end gap-2">
@@ -244,7 +254,14 @@ export default function UserManagement() {
                         <button 
                           onClick={() => {
                             setEditingUser(user);
-                            setFormData({ name: user.name, email: user.email, role: user.role, status: user.status, uid: user.uid });
+                            setFormData({ 
+                              name: user.name, 
+                              email: user.email, 
+                              password: (user as any).password || '',
+                              role: user.role, 
+                              status: user.status, 
+                              uid: user.uid 
+                            });
                             setIsModalOpen(true);
                           }}
                           className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all"
@@ -309,6 +326,19 @@ export default function UserManagement() {
                     value={formData.email}
                     onChange={(e) => setFormData({...formData, email: e.target.value})}
                   />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-black text-gray-400 uppercase tracking-widest mb-2">Password</label>
+                  <input 
+                    required={!editingUser}
+                    type="text" 
+                    className="w-full px-5 py-4 bg-gray-50 border-none rounded-2xl focus:ring-2 focus:ring-blue-100 font-bold text-gray-900"
+                    placeholder="Set user password"
+                    value={formData.password}
+                    onChange={(e) => setFormData({...formData, password: e.target.value})}
+                  />
+                  <p className="mt-1 text-[10px] text-gray-400 font-medium">For students to login via email/password</p>
                 </div>
 
                 <div>

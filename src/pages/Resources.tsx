@@ -64,8 +64,30 @@ export default function Resources({ profile }: { profile: any }) {
     fetchData();
   }, []);
 
+  const [isUploading, setIsUploading] = useState(false);
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // Simulate upload
+    setIsUploading(true);
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      // For demo purposes, we'll use base64 for small files
+      // In a real app, you'd upload to Firebase Storage
+      setFormData({ ...formData, fileUrl: reader.result as string });
+      setIsUploading(false);
+    };
+    reader.readAsDataURL(file);
+  };
+
   const handleSaveResource = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!formData.fileUrl) {
+      alert('Please upload a file or provide a link');
+      return;
+    }
     try {
       const id = Math.random().toString(36).substr(2, 9);
       await setDoc(doc(db, 'resources', id), {
@@ -271,9 +293,25 @@ export default function Resources({ profile }: { profile: any }) {
                   </div>
                 </div>
                 <div>
-                  <label className="block text-sm font-black text-gray-400 uppercase tracking-widest mb-2">File URL</label>
+                  <label className="block text-sm font-black text-gray-400 uppercase tracking-widest mb-2">Upload File (PDF, PPT, Image)</label>
+                  <div className="relative">
+                    <input 
+                      type="file" 
+                      accept=".pdf,.ppt,.pptx,.doc,.docx,image/*"
+                      onChange={handleFileChange}
+                      className="w-full px-5 py-4 bg-gray-50 border-none rounded-2xl focus:ring-2 focus:ring-blue-100 font-bold text-gray-900 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-black file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+                    />
+                    {isUploading && (
+                      <div className="absolute right-4 top-1/2 -translate-y-1/2">
+                        <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-600"></div>
+                      </div>
+                    )}
+                  </div>
+                  <p className="mt-2 text-[10px] text-gray-400 font-medium">Or paste a direct link below</p>
+                </div>
+                <div>
+                  <label className="block text-sm font-black text-gray-400 uppercase tracking-widest mb-2">File/Video URL</label>
                   <input 
-                    required
                     type="url" 
                     className="w-full px-5 py-4 bg-gray-50 border-none rounded-2xl focus:ring-2 focus:ring-blue-100 font-bold text-gray-900"
                     placeholder="https://..."

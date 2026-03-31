@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { db, collection, getDocs, query, where, Timestamp } from '../lib/firebase';
 import { BookOpen, Calendar, FileText, CreditCard, CheckCircle2, Clock, AlertCircle, TrendingUp, BookMarked } from 'lucide-react';
 import { motion } from 'motion/react';
+import ProfileSection from '../components/ProfileSection';
 
 export default function StudentDashboard({ profile }: { profile: any }) {
   const [enrolledCourses, setEnrolledCourses] = useState<any[]>([]);
@@ -56,6 +57,8 @@ export default function StudentDashboard({ profile }: { profile: any }) {
 
   return (
     <div className="space-y-8">
+      <ProfileSection profile={profile} />
+      
       <div>
         <h1 className="text-3xl font-black text-gray-900">Student Dashboard</h1>
         <p className="text-gray-500 font-medium">Welcome back, {profile.name}</p>
