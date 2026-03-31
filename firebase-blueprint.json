@@ -1,0 +1,165 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "Represents a user in the LMS (Admin, Teacher, or Student).",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "description": "Firebase Auth UID" },
+        "name": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "role": { "type": "string", "enum": ["admin", "teacher", "student"] },
+        "status": { "type": "string", "enum": ["pending", "approved", "rejected"], "description": "Approval status for students" },
+        "photoURL": { "type": "string", "format": "uri" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "name", "email", "role", "status"]
+    },
+    "Quiz": {
+      "title": "Quiz",
+      "description": "Represents a quiz with questions.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "courseId": { "type": "string" },
+        "subjectId": { "type": "string" },
+        "questions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "question": { "type": "string" },
+              "options": { "type": "array", "items": { "type": "string" } },
+              "correctAnswer": { "type": "integer" }
+            }
+          }
+        },
+        "timeLimit": { "type": "integer", "description": "Time limit in minutes" }
+      },
+      "required": ["title", "courseId", "questions"]
+    },
+    "Course": {
+      "title": "Course",
+      "description": "Represents a nursing course.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "semester": { "type": "integer" },
+        "teacherId": { "type": "string", "description": "UID of the assigned teacher" }
+      },
+      "required": ["name", "semester"]
+    },
+    "Subject": {
+      "title": "Subject",
+      "description": "Represents a subject within a course/semester.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "courseId": { "type": "string" },
+        "semester": { "type": "integer" }
+      },
+      "required": ["name", "courseId", "semester"]
+    },
+    "Attendance": {
+      "title": "Attendance",
+      "description": "Represents a student's attendance record.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "studentId": { "type": "string" },
+        "courseId": { "type": "string" },
+        "subjectId": { "type": "string" },
+        "date": { "type": "string", "format": "date" },
+        "status": { "type": "string", "enum": ["present", "absent", "late"] }
+      },
+      "required": ["studentId", "courseId", "date", "status"]
+    },
+    "Fee": {
+      "title": "Fee",
+      "description": "Represents a student's fee status.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "studentId": { "type": "string" },
+        "amount": { "type": "number" },
+        "dueDate": { "type": "string", "format": "date" },
+        "status": { "type": "string", "enum": ["paid", "pending"] },
+        "paymentDate": { "type": "string", "format": "date-time" }
+      },
+      "required": ["studentId", "amount", "dueDate", "status"]
+    },
+    "Assignment": {
+      "title": "Assignment",
+      "description": "Represents an assignment or quiz.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "courseId": { "type": "string" },
+        "subjectId": { "type": "string" },
+        "dueDate": { "type": "string", "format": "date-time" },
+        "type": { "type": "string", "enum": ["assignment", "quiz"] }
+      },
+      "required": ["title", "courseId", "dueDate", "type"]
+    },
+    "Submission": {
+      "title": "Submission",
+      "description": "Represents a student's submission for an assignment.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "assignmentId": { "type": "string" },
+        "studentId": { "type": "string" },
+        "fileUrl": { "type": "string", "format": "uri" },
+        "submittedAt": { "type": "string", "format": "date-time" },
+        "grade": { "type": "string" }
+      },
+      "required": ["assignmentId", "studentId", "submittedAt"]
+    },
+    "Resource": {
+      "title": "Resource",
+      "description": "Represents a learning resource (PDF, PPT, Video, Book).",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "type": { "type": "string", "enum": ["pdf", "ppt", "video", "book"] },
+        "fileUrl": { "type": "string", "format": "uri" },
+        "courseId": { "type": "string" },
+        "subjectId": { "type": "string" }
+      },
+      "required": ["title", "type", "fileUrl", "courseId"]
+    },
+    "Notification": {
+      "title": "Notification",
+      "description": "Represents a notification sent to a user.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "recipientId": { "type": "string", "description": "UID of the recipient, or 'all' for broadcast" },
+        "title": { "type": "string" },
+        "message": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "read": { "type": "boolean" }
+      },
+      "required": ["recipientId", "title", "message", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/users/{uid}": { "schema": "User", "description": "User profiles" },
+    "/courses/{courseId}": { "schema": "Course", "description": "Course definitions" },
+    "/subjects/{subjectId}": { "schema": "Subject", "description": "Subject definitions" },
+    "/attendance/{attendanceId}": { "schema": "Attendance", "description": "Attendance records" },
+    "/fees/{feeId}": { "schema": "Fee", "description": "Fee records" },
+    "/assignments/{assignmentId}": { "schema": "Assignment", "description": "Assignment/Quiz definitions" },
+    "/submissions/{submissionId}": { "schema": "Submission", "description": "Student submissions" },
+    "/resources/{resourceId}": { "schema": "Resource", "description": "Learning resources" },
+    "/quizzes/{quizId}": { "schema": "Quiz", "description": "Quiz definitions" },
+    "/notifications/{notificationId}": { "schema": "Notification", "description": "User notifications" }
+  }
+}
