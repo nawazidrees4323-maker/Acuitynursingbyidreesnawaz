@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { db, collection, getDocs, setDoc, doc, deleteDoc, Timestamp, query, where, addDoc } from '../lib/firebase';
+import { db, collection, getDocs, setDoc, doc, deleteDoc, Timestamp, query, where, addDoc, onSnapshot } from '../lib/firebase';
 import { BrainCircuit, Plus, Trash2, Clock, CheckCircle2, XCircle, ChevronRight, Play, Save, ListChecks } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { UserProfile } from '../App';
@@ -93,19 +93,29 @@ export default function Quizzes({ profile }: { profile: UserProfile }) {
     fetchQuizzes();
     fetchCourses();
     fetchSubjects();
+    
+    let unsubscribeResults: (() => void) | undefined;
     if (profile.role === 'admin' || profile.role === 'teacher') {
-      fetchAllResults();
+      // Use onSnapshot for real-time analytics updates
+      const resultsQuery = query(collection(db, 'quiz_results'));
+      unsubscribeResults = onSnapshot(resultsQuery, (snapshot) => {
+        const results = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        // Sort by date descending
+        results.sort((a: any, b: any) => {
+          const dateA = a.completedAt?.toDate() || 0;
+          const dateB = b.completedAt?.toDate() || 0;
+          return dateB - dateA;
+        });
+        setAllResults(results);
+      }, (error) => {
+        console.error('Error fetching results:', error);
+      });
     }
-  }, []);
 
-  const fetchAllResults = async () => {
-    try {
-      const querySnapshot = await getDocs(collection(db, 'quiz_results'));
-      setAllResults(querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-    } catch (error) {
-      console.error('Error fetching results:', error);
-    }
-  };
+    return () => {
+      if (unsubscribeResults) unsubscribeResults();
+    };
+  }, [profile.role]);
 
   const fetchQuizzes = async () => {
     setLoading(true);
@@ -220,15 +230,14 @@ export default function Quizzes({ profile }: { profile: UserProfile }) {
       score,
       totalQuestions: activeQuiz.questions.length,
       percentage: (score / activeQuiz.questions.length) * 100,
-      completedAt: Timestamp.now()
+      completedAt: Timestamp.now(),
+      userAnswers: answers, // Store user answers for review
+      questions: activeQuiz.questions // Store questions for review
     };
 
     try {
       await addDoc(collection(db, 'quiz_results'), resultData);
       setQuizResults(resultData);
-      if (profile.role === 'admin' || profile.role === 'teacher') {
-        fetchAllResults();
-      }
     } catch (error) {
       console.error('Error saving result:', error);
       setQuizResults(resultData);
@@ -390,24 +399,85 @@ export default function Quizzes({ profile }: { profile: UserProfile }) {
               </div>
             </div>
           ) : (
-            <div className="p-12 text-center">
+            <div className="p-12 max-w-4xl mx-auto">
               <div className={`w-24 h-24 rounded-[2rem] flex items-center justify-center mx-auto mb-8 shadow-xl ${
                 quizResults.percentage >= 50 ? 'bg-green-100 text-green-600 shadow-green-50' : 'bg-red-100 text-red-600 shadow-red-50'
               }`}>
                 {quizResults.percentage >= 50 ? <CheckCircle2 className="w-12 h-12" /> : <XCircle className="w-12 h-12" />}
               </div>
-              <h2 className="text-4xl font-black text-gray-900 mb-2">Quiz Completed!</h2>
-              <p className="text-gray-500 font-bold uppercase tracking-widest mb-12">Your Results</p>
+              <h2 className="text-4xl font-black text-gray-900 mb-2 text-center">Quiz Completed!</h2>
+              <p className="text-gray-500 font-bold uppercase tracking-widest mb-12 text-center">Your Results</p>
               
               <div className="grid grid-cols-2 gap-6 max-w-sm mx-auto mb-12">
-                <div className="bg-gray-50 p-8 rounded-3xl border border-gray-100">
-                  <p className="text-3xl font-black text-gray-900">{quizResults.score}/{quizResults.total}</p>
+                <div className="bg-gray-50 p-8 rounded-3xl border border-gray-100 text-center">
+                  <p className="text-3xl font-black text-gray-900">{quizResults.score}/{quizResults.totalQuestions}</p>
                   <p className="text-xs text-gray-400 font-bold uppercase tracking-widest mt-1">Score</p>
                 </div>
-                <div className="bg-gray-50 p-8 rounded-3xl border border-gray-100">
+                <div className="bg-gray-50 p-8 rounded-3xl border border-gray-100 text-center">
                   <p className="text-3xl font-black text-gray-900">{Math.round(quizResults.percentage)}%</p>
                   <p className="text-xs text-gray-400 font-bold uppercase tracking-widest mt-1">Accuracy</p>
                 </div>
+              </div>
+
+              {/* Detailed Review Section */}
+              <div className="space-y-8 mb-12 text-left">
+                <div className="flex items-center gap-3 mb-6">
+                  <div className="h-px flex-1 bg-gray-100"></div>
+                  <h3 className="text-xs font-black text-gray-400 uppercase tracking-[0.2em]">Detailed Review</h3>
+                  <div className="h-px flex-1 bg-gray-100"></div>
+                </div>
+
+                {quizResults.questions.map((q: any, idx: number) => {
+                  const userAnswer = quizResults.userAnswers[idx];
+                  const isCorrect = userAnswer === q.correctAnswer;
+
+                  return (
+                    <div key={idx} className={`p-8 rounded-[2rem] border ${isCorrect ? 'bg-green-50/30 border-green-100' : 'bg-red-50/30 border-red-100'}`}>
+                      <div className="flex items-start gap-4 mb-6">
+                        <div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 text-sm font-black ${
+                          isCorrect ? 'bg-green-600 text-white' : 'bg-red-600 text-white'
+                        }`}>
+                          {idx + 1}
+                        </div>
+                        <h4 className="text-lg font-bold text-gray-800 leading-relaxed">{q.question}</h4>
+                      </div>
+
+                      <div className="grid gap-3 ml-12">
+                        {q.options.map((option: string, optIdx: number) => {
+                          const isUserChoice = userAnswer === optIdx;
+                          const isCorrectChoice = q.correctAnswer === optIdx;
+
+                          let statusClass = 'bg-white text-gray-500 border-gray-100';
+                          if (isCorrectChoice) statusClass = 'bg-green-100 text-green-700 border-green-200 ring-2 ring-green-500/20';
+                          if (isUserChoice && !isCorrect) statusClass = 'bg-red-100 text-red-700 border-red-200 ring-2 ring-red-500/20';
+
+                          return (
+                            <div 
+                              key={optIdx} 
+                              className={`p-4 rounded-xl border text-sm font-bold flex items-center justify-between ${statusClass}`}
+                            >
+                              <div className="flex items-center gap-3">
+                                <span className="opacity-50">{String.fromCharCode(65 + optIdx)})</span>
+                                {option}
+                              </div>
+                              {isCorrectChoice && <CheckCircle2 className="w-4 h-4 text-green-600" />}
+                              {isUserChoice && !isCorrect && <XCircle className="w-4 h-4 text-red-600" />}
+                            </div>
+                          );
+                        })}
+                      </div>
+                      
+                      {!isCorrect && (
+                        <div className="mt-6 ml-12 p-4 bg-blue-50 rounded-2xl border border-blue-100">
+                          <p className="text-xs font-black text-blue-700 uppercase tracking-widest mb-1">Correct Answer</p>
+                          <p className="text-sm font-bold text-blue-900">
+                            {String.fromCharCode(65 + q.correctAnswer)}) {q.options[q.correctAnswer]}
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
 
               <button
