@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { db, collection, getDocs, setDoc, doc, deleteDoc, query, where } from '../lib/firebase';
-import { Upload, FileText, Video, Book, Search, Plus, Trash2, ExternalLink, Filter, BookOpen } from 'lucide-react';
+import { Upload, FileText, Video, Book, Search, Plus, Trash2, ExternalLink, Filter, BookOpen, CheckCircle2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 interface Resource {
@@ -63,16 +63,28 @@ export default function Resources({ profile }: { profile: any }) {
   }, []);
 
   const [isUploading, setIsUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [showSuccess, setShowSuccess] = useState(false);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
     setIsUploading(true);
+    setUploadProgress(0);
     const reader = new FileReader();
+
+    reader.onprogress = (event) => {
+      if (event.lengthComputable) {
+        const progress = Math.round((event.loaded / event.total) * 100);
+        setUploadProgress(progress);
+      }
+    };
+
     reader.onloadend = () => {
       setFormData({ ...formData, fileUrl: reader.result as string });
       setIsUploading(false);
+      setUploadProgress(100);
     };
     reader.readAsDataURL(file);
   };
@@ -90,9 +102,14 @@ export default function Resources({ profile }: { profile: any }) {
         ...formData,
         createdAt: new Date()
       });
-      setIsModalOpen(false);
-      setFormData({ title: '', type: 'pdf', category: 'book', fileUrl: '', courseId: '', subjectId: '', chapter: '' });
-      fetchData();
+      setShowSuccess(true);
+      setTimeout(() => {
+        setShowSuccess(false);
+        setIsModalOpen(false);
+        setFormData({ title: '', type: 'pdf', category: 'book', fileUrl: '', courseId: '', subjectId: '', chapter: '' });
+        setUploadProgress(0);
+        fetchData();
+      }, 2000);
     } catch (error) {
       console.error('Error saving resource:', error);
     }
@@ -433,35 +450,63 @@ export default function Resources({ profile }: { profile: any }) {
 
                   <div>
                     <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Upload File</label>
-                    <div className="relative">
+                    <div className="relative space-y-2">
                       <input 
                         type="file" 
                         accept=".pdf,.ppt,.pptx,.doc,.docx,image/*"
                         onChange={handleFileChange}
-                        className="w-full px-6 py-4 bg-gray-50 border-none rounded-2xl focus:ring-2 focus:ring-blue-100 font-bold text-gray-900 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-[10px] file:font-black file:bg-blue-600 file:text-white hover:file:bg-blue-700"
+                        className="w-full px-6 py-4 bg-gray-50 border-none rounded-2xl focus:ring-2 focus:ring-blue-100 font-bold text-gray-900 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-[10px] file:font-black file:bg-blue-600 file:text-white hover:file:bg-blue-700 disabled:opacity-50"
+                        disabled={isUploading}
                       />
-                      {isUploading && (
-                        <div className="absolute right-4 top-1/2 -translate-y-1/2">
-                          <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-600"></div>
+                      {(isUploading || uploadProgress > 0) && (
+                        <div className="w-full bg-gray-100 rounded-full h-2 overflow-hidden">
+                          <motion.div 
+                            initial={{ width: 0 }}
+                            animate={{ width: `${uploadProgress}%` }}
+                            className="h-full bg-blue-600"
+                          />
                         </div>
+                      )}
+                      {uploadProgress === 100 && !isUploading && (
+                        <p className="text-[10px] font-black text-green-600 uppercase tracking-widest flex items-center gap-1">
+                          <CheckCircle2 className="w-3 h-3" />
+                          File Ready
+                        </p>
                       )}
                     </div>
                   </div>
                 </div>
 
-                <div className="pt-4 flex gap-4">
+                <div className="pt-4 flex gap-4 relative">
+                  <AnimatePresence>
+                    {showSuccess && (
+                      <motion.div 
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: -10 }}
+                        className="absolute inset-0 z-10 bg-white flex items-center justify-center gap-3"
+                      >
+                        <div className="w-10 h-10 bg-green-100 text-green-600 rounded-full flex items-center justify-center">
+                          <CheckCircle2 className="w-6 h-6" />
+                        </div>
+                        <p className="font-black text-green-600 uppercase tracking-widest text-sm">Material Saved Successfully!</p>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
                   <button 
                     type="button"
+                    disabled={showSuccess}
                     onClick={() => setIsModalOpen(false)}
-                    className="flex-1 py-5 bg-gray-50 text-gray-500 rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-gray-100 transition-all"
+                    className="flex-1 py-5 bg-gray-50 text-gray-500 rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-gray-100 transition-all disabled:opacity-0"
                   >
                     Cancel
                   </button>
                   <button 
                     type="submit" 
-                    className="flex-[2] py-5 bg-blue-600 text-white rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-blue-700 transition-all shadow-xl shadow-blue-100"
+                    disabled={showSuccess || isUploading || !formData.fileUrl}
+                    className="flex-[2] py-5 bg-blue-600 text-white rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-blue-700 transition-all shadow-xl shadow-blue-100 disabled:opacity-50"
                   >
-                    Save to Library
+                    {isUploading ? 'Reading File...' : 'Save to Library'}
                   </button>
                 </div>
               </form>
