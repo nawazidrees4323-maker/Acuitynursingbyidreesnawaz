@@ -43,6 +43,7 @@ export default function Assignments({ profile }: { profile: any }) {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isSubmitModalOpen, setIsSubmitModalOpen] = useState(false);
   const [selectedAssignment, setSelectedAssignment] = useState<Assignment | null>(null);
+  const [viewingFile, setViewingFile] = useState<{ url: string; title: string } | null>(null);
 
   const [formData, setFormData] = useState({
     title: '',
@@ -327,15 +328,13 @@ export default function Assignments({ profile }: { profile: any }) {
                   </button>
                 )}
                 {isStudent && submission && (
-                  <a 
-                    href={submission.fileUrl} 
-                    target="_blank" 
-                    rel="noopener noreferrer"
+                  <button 
+                    onClick={() => setViewingFile({ url: submission.fileUrl, title: assignment.title })}
                     className="flex-1 py-2.5 bg-white border border-gray-100 text-gray-600 rounded-xl font-bold text-sm hover:bg-gray-50 transition-all flex items-center justify-center gap-2"
                   >
                     <FileText className="w-4 h-4" />
                     View Submission
-                  </a>
+                  </button>
                 )}
                 {(isTeacher || isAdmin) && (
                   <>
@@ -524,6 +523,80 @@ export default function Assignments({ profile }: { profile: any }) {
                   Confirm Submission
                 </button>
               </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* File Viewer Modal */}
+      <AnimatePresence>
+        {viewingFile && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/90 backdrop-blur-md p-4 lg:p-10">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="w-full h-full max-w-7xl bg-white rounded-[3rem] overflow-hidden flex flex-col shadow-2xl"
+            >
+              <div className="p-6 lg:p-8 border-b border-gray-100 flex items-center justify-between bg-white">
+                <div>
+                  <h2 className="text-xl lg:text-2xl font-black text-gray-900 truncate max-w-md">{viewingFile.title}</h2>
+                  <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Submission Preview</p>
+                </div>
+                <div className="flex items-center gap-4">
+                  <a 
+                    href={viewingFile.url} 
+                    download={viewingFile.title}
+                    className="hidden sm:flex items-center gap-2 px-6 py-3 bg-gray-50 text-gray-600 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-gray-100 transition-all"
+                  >
+                    <Upload className="w-4 h-4 rotate-180" />
+                    Download
+                  </a>
+                  <button 
+                    onClick={() => setViewingFile(null)}
+                    className="p-4 bg-red-50 text-red-500 rounded-2xl hover:bg-red-100 transition-all"
+                  >
+                    <Plus className="w-8 h-8 rotate-45" />
+                  </button>
+                </div>
+              </div>
+              
+              <div className="flex-1 bg-gray-100 relative overflow-hidden">
+                {viewingFile.url.startsWith('data:application/pdf') ? (
+                  <iframe 
+                    src={`${viewingFile.url}#toolbar=0`}
+                    className="w-full h-full border-none"
+                    title={viewingFile.title}
+                  />
+                ) : viewingFile.url.startsWith('data:image') ? (
+                  <div className="w-full h-full flex items-center justify-center p-8 overflow-auto">
+                    <img 
+                      src={viewingFile.url} 
+                      alt={viewingFile.title} 
+                      className="max-w-full max-h-full object-contain rounded-xl shadow-lg"
+                      referrerPolicy="no-referrer"
+                    />
+                  </div>
+                ) : (
+                  <div className="w-full h-full flex flex-col items-center justify-center p-12 text-center bg-white">
+                    <div className="p-8 bg-amber-50 text-amber-600 rounded-[3rem] mb-6">
+                      <AlertCircle className="w-20 h-20" />
+                    </div>
+                    <h3 className="text-2xl font-black text-gray-900 mb-2">Preview Not Available</h3>
+                    <p className="text-gray-500 font-medium mb-8 max-w-md">
+                      This file type cannot be previewed directly. Please download it to view.
+                    </p>
+                    <a 
+                      href={viewingFile.url} 
+                      download={viewingFile.title}
+                      className="px-10 py-5 bg-blue-600 text-white rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-blue-700 transition-all shadow-xl shadow-blue-100 flex items-center gap-3"
+                    >
+                      <Upload className="w-5 h-5 rotate-180" />
+                      Download to View
+                    </a>
+                  </div>
+                )}
+              </div>
             </motion.div>
           </div>
         )}
