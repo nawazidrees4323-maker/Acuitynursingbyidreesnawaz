@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { db, collection, getDocs, setDoc, doc, deleteDoc, query, where } from '../lib/firebase';
+import { db, collection, getDocs, setDoc, doc, deleteDoc, query, where, storage, ref, uploadBytesResumable, getDownloadURL } from '../lib/firebase';
 import { Upload, FileText, Video, Book, Search, Plus, Trash2, ExternalLink, Filter, BookOpen, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -75,9 +75,10 @@ export default function Resources({ profile }: { profile: any }) {
       return;
     }
 
-    // Check file size (Firestore limit is 1MB total per doc, base64 adds ~33% overhead)
-    if (file && file.size > 800 * 1024) {
-      alert('File is too large. Maximum size allowed is 800KB for cloud storage. Please use a smaller file or a link.');
+    // Check file size (3GB limit)
+    const MAX_SIZE = 3 * 1024 * 1024 * 1024; // 3GB
+    if (file && file.size > MAX_SIZE) {
+      alert('File is too large. Maximum size allowed is 3GB.');
       return;
     }
 
@@ -86,7 +87,7 @@ export default function Resources({ profile }: { profile: any }) {
       id: uploadId,
       title: formData.title || file?.name || 'Untitled Resource',
       progress: 0,
-      status: 'reading' as const
+      status: 'saving' as const
     };
 
     // Close modal immediately
@@ -101,24 +102,27 @@ export default function Resources({ profile }: { profile: any }) {
         let finalFileUrl = resourceData.fileUrl;
 
         if (file) {
-          // 1. Read file with real progress
+          // Upload to Firebase Storage
+          const storageRef = ref(storage, `resources/${uploadId}_${file.name}`);
+          const uploadTask = uploadBytesResumable(storageRef, file);
+
           finalFileUrl = await new Promise((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onprogress = (event) => {
-              if (event.lengthComputable) {
-                const progress = Math.round((event.loaded / event.total) * 100);
+            uploadTask.on(
+              'state_changed',
+              (snapshot) => {
+                const progress = Math.round((snapshot.bytesTransferred / snapshot.totalBytes) * 100);
                 setPendingUploads(prev => prev.map(u => u.id === uploadId ? { ...u, progress } : u));
+              },
+              (error) => reject(error),
+              async () => {
+                const downloadUrl = await getDownloadURL(uploadTask.snapshot.ref);
+                resolve(downloadUrl);
               }
-            };
-            reader.onload = () => resolve(reader.result as string);
-            reader.onerror = () => reject(new Error('Failed to read file'));
-            reader.readAsDataURL(file);
+            );
           });
         }
 
-        // 2. Save to Firestore
-        setPendingUploads(prev => prev.map(u => u.id === uploadId ? { ...u, status: 'saving' as const, progress: 100 } : u));
-        
+        // Save to Firestore
         await setDoc(doc(db, 'resources', uploadId), {
           ...resourceData,
           id: uploadId,
@@ -139,7 +143,7 @@ export default function Resources({ profile }: { profile: any }) {
         setPendingUploads(prev => prev.map(u => u.id === uploadId ? { 
           ...u, 
           status: 'error' as const, 
-          error: error.message?.includes('too large') ? 'File too large for database' : 'Upload failed'
+          error: error.message?.includes('too large') ? 'File too large' : 'Upload failed'
         } : u));
       }
     };
@@ -559,7 +563,7 @@ export default function Resources({ profile }: { profile: any }) {
                           className="absolute inset-0 opacity-0 cursor-pointer"
                         />
                       </div>
-                      <p className="text-[9px] text-gray-400 font-medium italic mt-2 text-center">Max size: 800KB (Cloud limit)</p>
+                      <p className="text-[9px] text-gray-400 font-medium italic mt-2 text-center">Max size: 3GB (Cloud Storage)</p>
                     </div>
                   </div>
                 </div>

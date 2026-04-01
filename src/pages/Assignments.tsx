@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { db, collection, getDocs, setDoc, doc, query, where, Timestamp, deleteDoc } from '../lib/firebase';
+import { db, collection, getDocs, setDoc, doc, query, where, Timestamp, deleteDoc, storage, ref, uploadBytesResumable, getDownloadURL } from '../lib/firebase';
 import { FileText, Plus, Search, Calendar, Clock, CheckCircle2, Upload, Trash2, Edit2, User, BookOpen, AlertCircle, Loader2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { format } from 'date-fns';
@@ -117,8 +117,10 @@ export default function Assignments({ profile }: { profile: any }) {
       return;
     }
 
-    if (file && file.size > 800 * 1024) {
-      alert('File is too large. Maximum size allowed is 800KB. Please use a smaller file or a link.');
+    // Check file size (3GB limit)
+    const MAX_SIZE = 3 * 1024 * 1024 * 1024; // 3GB
+    if (file && file.size > MAX_SIZE) {
+      alert('File is too large. Maximum size allowed is 3GB.');
       return;
     }
 
@@ -127,7 +129,7 @@ export default function Assignments({ profile }: { profile: any }) {
       id: submissionId,
       title: selectedAssignment.title,
       progress: 0,
-      status: 'reading' as const
+      status: 'saving' as const
     };
 
     setIsSubmitModalOpen(false);
@@ -138,22 +140,27 @@ export default function Assignments({ profile }: { profile: any }) {
         let finalFileUrl = submissionData.fileUrl;
 
         if (file) {
+          // Upload to Firebase Storage
+          const storageRef = ref(storage, `submissions/${submissionId}_${file.name}`);
+          const uploadTask = uploadBytesResumable(storageRef, file);
+
           finalFileUrl = await new Promise((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onprogress = (event) => {
-              if (event.lengthComputable) {
-                const progress = Math.round((event.loaded / event.total) * 100);
+            uploadTask.on(
+              'state_changed',
+              (snapshot) => {
+                const progress = Math.round((snapshot.bytesTransferred / snapshot.totalBytes) * 100);
                 setPendingSubmissions(prev => prev.map(s => s.id === submissionId ? { ...s, progress } : s));
+              },
+              (error) => reject(error),
+              async () => {
+                const downloadUrl = await getDownloadURL(uploadTask.snapshot.ref);
+                resolve(downloadUrl);
               }
-            };
-            reader.onload = () => resolve(reader.result as string);
-            reader.onerror = () => reject(new Error('Failed to read file'));
-            reader.readAsDataURL(file);
+            );
           });
         }
 
-        setPendingSubmissions(prev => prev.map(s => s.id === submissionId ? { ...s, status: 'saving' as const, progress: 100 } : s));
-
+        // Save to Firestore
         await setDoc(doc(db, 'submissions', submissionId), {
           id: submissionId,
           assignmentId: selectedAssignment.id,
@@ -495,6 +502,7 @@ export default function Assignments({ profile }: { profile: any }) {
                             className="absolute inset-0 opacity-0 cursor-pointer"
                           />
                         </div>
+                        <p className="text-[9px] text-gray-400 font-medium italic mt-2 text-center">Max size: 3GB (Cloud Storage)</p>
                       </div>
                     </div>
 
