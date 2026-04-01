@@ -42,6 +42,7 @@ export default function Quizzes({ profile }: { profile: UserProfile }) {
   // New Quiz Form State
   const [isBulkMode, setIsBulkMode] = useState(false);
   const [bulkText, setBulkText] = useState('');
+  const [bulkAnswersText, setBulkAnswersText] = useState('');
   const [newQuiz, setNewQuiz] = useState({
     title: '',
     courseId: '',
@@ -54,13 +55,33 @@ export default function Quizzes({ profile }: { profile: UserProfile }) {
     const questions: Question[] = [];
     const blocks = bulkText.split(/\n\s*\n/);
 
-    blocks.forEach(block => {
+    // Parse Answer Key
+    const answerKey: (number | null)[] = [];
+    if (bulkAnswersText.trim()) {
+      const answerLines = bulkAnswersText.split('\n').map(l => l.trim()).filter(l => l !== '');
+      answerLines.forEach((line, idx) => {
+        const match = line.match(/^(\d+)[.\)]\s*([A-D])/i);
+        if (match) {
+          const qNum = parseInt(match[1]);
+          const letter = match[2].toUpperCase();
+          answerKey[qNum - 1] = letter.charCodeAt(0) - 65;
+        } else {
+          const letterMatch = line.match(/^([A-D])/i);
+          if (letterMatch) {
+            const letter = letterMatch[1].toUpperCase();
+            answerKey[idx] = letter.charCodeAt(0) - 65;
+          }
+        }
+      });
+    }
+
+    blocks.forEach((block, index) => {
       const lines = block.split('\n').map(l => l.trim()).filter(l => l !== '');
-      if (lines.length < 3) return;
+      if (lines.length < 2) return;
 
       const questionText = lines[0].replace(/^\d+[\.\)]\s*/, '');
       const options: string[] = [];
-      let correctAnswer = 0;
+      let correctAnswer = -1;
 
       lines.slice(1).forEach(line => {
         const optionMatch = line.match(/^([A-D])[\.\)]\s*(.*)/i);
@@ -74,6 +95,11 @@ export default function Quizzes({ profile }: { profile: UserProfile }) {
           }
         }
       });
+
+      // Override with answer key if provided for this index
+      if (answerKey[index] !== undefined && answerKey[index] !== null) {
+        correctAnswer = answerKey[index]!;
+      }
 
       if (options.length >= 2) {
         // Fill up to 4 options if less
@@ -92,6 +118,7 @@ export default function Quizzes({ profile }: { profile: UserProfile }) {
       setNewQuiz({ ...newQuiz, questions });
       setIsBulkMode(false);
       setBulkText('');
+      setBulkAnswersText('');
     } else {
       alert('Could not parse any questions. Please check the format.');
     }
@@ -163,7 +190,7 @@ export default function Quizzes({ profile }: { profile: UserProfile }) {
         courseId: '',
         subjectId: '',
         timeLimit: 30,
-        questions: [{ question: '', options: ['', '', '', ''], correctAnswer: 0 }]
+        questions: [{ question: '', options: ['', '', '', ''], correctAnswer: 0, type: 'mcq' }]
       });
       fetchQuizzes();
     } catch (error) {
@@ -182,10 +209,15 @@ export default function Quizzes({ profile }: { profile: UserProfile }) {
     }
   };
 
-  const addQuestion = () => {
+  const addQuestion = (type: 'mcq' | 'seq' = 'mcq') => {
     setNewQuiz({
       ...newQuiz,
-      questions: [...newQuiz.questions, { question: '', options: ['', '', '', ''], correctAnswer: 0, type: 'mcq' }]
+      questions: [...newQuiz.questions, { 
+        question: '', 
+        options: type === 'mcq' ? ['', '', '', ''] : [], 
+        correctAnswer: 0, 
+        type 
+      }]
     });
   };
 
@@ -589,15 +621,25 @@ export default function Quizzes({ profile }: { profile: UserProfile }) {
                 </button>
                 {currentQuestionIndex === activeQuiz.questions.length - 1 ? (
                   <button
+                    disabled={
+                      activeQuiz.questions[currentQuestionIndex].type === 'mcq' 
+                        ? answers[currentQuestionIndex] === -1 
+                        : (answers[currentQuestionIndex] as string).trim() === ''
+                    }
                     onClick={submitQuiz}
-                    className="px-12 py-4 bg-green-600 text-white rounded-2xl font-black shadow-lg shadow-green-100 hover:bg-green-700 transition-all"
+                    className="px-12 py-4 bg-green-600 text-white rounded-2xl font-black shadow-lg shadow-green-100 hover:bg-green-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     Finish Quiz
                   </button>
                 ) : (
                   <button
+                    disabled={
+                      activeQuiz.questions[currentQuestionIndex].type === 'mcq' 
+                        ? answers[currentQuestionIndex] === -1 
+                        : (answers[currentQuestionIndex] as string).trim() === ''
+                    }
                     onClick={() => setCurrentQuestionIndex(prev => prev + 1)}
-                    className="px-12 py-4 bg-blue-600 text-white rounded-2xl font-black shadow-lg shadow-blue-100 hover:bg-blue-700 transition-all flex items-center gap-2"
+                    className="px-12 py-4 bg-blue-600 text-white rounded-2xl font-black shadow-lg shadow-blue-100 hover:bg-blue-700 transition-all flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     Next Question
                     <ChevronRight className="w-5 h-5" />
@@ -932,46 +974,77 @@ export default function Quizzes({ profile }: { profile: UserProfile }) {
                 <div className="space-y-6">
                   <div className="flex items-center justify-between">
                     <h3 className="text-lg font-black text-gray-900">Questions</h3>
-                    <div className="flex gap-4">
+                    <div className="flex gap-3">
                       <button 
                         type="button"
                         onClick={() => setIsBulkMode(!isBulkMode)}
-                        className={`text-sm font-bold px-4 py-2 rounded-xl transition-all ${
-                          isBulkMode ? 'bg-amber-100 text-amber-700' : 'bg-blue-50 text-blue-600'
+                        className={`text-xs font-black px-4 py-2 rounded-xl transition-all uppercase tracking-widest ${
+                          isBulkMode ? 'bg-amber-100 text-amber-700' : 'bg-gray-100 text-gray-600'
                         }`}
                       >
-                        {isBulkMode ? 'Cancel Bulk Import' : 'Bulk Import (Paste)'}
+                        {isBulkMode ? 'Cancel Bulk' : 'Bulk Import'}
                       </button>
                       <button 
                         type="button"
-                        onClick={addQuestion}
-                        className="text-blue-600 font-bold text-sm hover:underline"
+                        onClick={() => addQuestion('mcq')}
+                        className="bg-blue-50 text-blue-600 font-black text-[10px] px-4 py-2 rounded-xl uppercase tracking-widest hover:bg-blue-100 transition-all"
                       >
-                        + Add Question
+                        + Add MCQ
+                      </button>
+                      <button 
+                        type="button"
+                        onClick={() => addQuestion('seq')}
+                        className="bg-indigo-50 text-indigo-600 font-black text-[10px] px-4 py-2 rounded-xl uppercase tracking-widest hover:bg-indigo-100 transition-all"
+                      >
+                        + Add SEQ
                       </button>
                     </div>
                   </div>
 
                   {isBulkMode ? (
-                    <div className="space-y-4">
+                    <div className="space-y-6">
                       <div className="bg-blue-50 p-6 rounded-[2rem] border border-blue-100">
-                        <h4 className="text-sm font-black text-blue-800 mb-2 uppercase tracking-widest">Format Guide</h4>
-                        <p className="text-xs text-blue-600 leading-relaxed font-medium">
-                          Paste your questions in this format (separate questions with an empty line):<br/>
-                          1. What is the capital of France?<br/>
-                          A) London<br/>
-                          B) Paris<br/>
-                          C) Berlin<br/>
-                          D) Rome<br/>
-                          Answer: B
-                        </p>
+                        <h4 className="text-sm font-black text-blue-800 mb-2 uppercase tracking-widest">Bulk Import Guide</h4>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                          <p className="text-[10px] text-blue-600 leading-relaxed font-medium">
+                            <span className="font-black">Questions & Options:</span><br/>
+                            1. What is the capital of France?<br/>
+                            A) London<br/>
+                            B) Paris<br/>
+                            C) Berlin<br/>
+                            D) Rome
+                          </p>
+                          <p className="text-[10px] text-blue-600 leading-relaxed font-medium">
+                            <span className="font-black">Answer Key (Optional):</span><br/>
+                            1. B<br/>
+                            2. A<br/>
+                            3. C<br/>
+                            (Or just paste a list: B, A, C)
+                          </p>
+                        </div>
                       </div>
-                      <textarea 
-                        className="w-full h-80 px-6 py-5 bg-gray-50 border-none rounded-[2rem] focus:ring-2 focus:ring-blue-100 font-medium text-gray-700"
-                        placeholder="Paste your questions here..."
-                        value={bulkText}
-                        onChange={(e) => setBulkText(e.target.value)}
-                      />
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div className="space-y-2">
+                          <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest">Questions & Options</label>
+                          <textarea 
+                            className="w-full h-80 px-6 py-5 bg-gray-50 border-none rounded-[2rem] focus:ring-2 focus:ring-blue-100 font-medium text-gray-700"
+                            placeholder="Paste questions and options here..."
+                            value={bulkText}
+                            onChange={(e) => setBulkText(e.target.value)}
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest">Answer Key (Optional)</label>
+                          <textarea 
+                            className="w-full h-80 px-6 py-5 bg-gray-50 border-none rounded-[2rem] focus:ring-2 focus:ring-blue-100 font-medium text-gray-700"
+                            placeholder="Paste answer key here (e.g., 1. A, 2. B or just A, B, C)..."
+                            value={bulkAnswersText}
+                            onChange={(e) => setBulkAnswersText(e.target.value)}
+                          />
+                        </div>
+                      </div>
+
                       <button 
                         type="button"
                         onClick={parseBulkQuestions}
@@ -1032,26 +1105,39 @@ export default function Quizzes({ profile }: { profile: UserProfile }) {
                       </div>
 
                       {q.type === 'mcq' ? (
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                          {q.options.map((opt, oIdx) => (
-                            <div key={oIdx} className="flex items-center gap-3">
-                              <input 
-                                type="radio"
-                                name={`correct-${qIdx}`}
-                                checked={q.correctAnswer === oIdx}
-                                onChange={() => updateQuestion(qIdx, 'correctAnswer', oIdx)}
-                                className="w-4 h-4 text-blue-600"
-                              />
-                              <input 
-                                required
-                                type="text" 
-                                className="flex-1 px-4 py-2.5 bg-white border-none rounded-xl focus:ring-2 focus:ring-blue-100 font-medium text-gray-700"
-                                placeholder={`Option ${String.fromCharCode(65 + oIdx)}`}
-                                value={opt}
-                                onChange={(e) => updateOption(qIdx, oIdx, e.target.value)}
-                              />
-                            </div>
-                          ))}
+                        <div className="space-y-4">
+                          <label className="block text-[10px] font-black text-blue-600 uppercase tracking-widest mb-2">Options & Answer Key</label>
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            {q.options.map((opt, oIdx) => (
+                              <div 
+                                key={oIdx} 
+                                className={`flex items-center gap-3 p-3 rounded-2xl border-2 transition-all ${
+                                  q.correctAnswer === oIdx ? 'bg-green-50 border-green-200' : 'bg-white border-transparent'
+                                }`}
+                              >
+                                <input 
+                                  type="radio"
+                                  name={`correct-${qIdx}`}
+                                  checked={q.correctAnswer === oIdx}
+                                  onChange={() => updateQuestion(qIdx, 'correctAnswer', oIdx)}
+                                  className="w-5 h-5 text-green-600 focus:ring-green-500"
+                                />
+                                <div className="flex-1">
+                                  <input 
+                                    required
+                                    type="text" 
+                                    className="w-full bg-transparent border-none p-0 focus:ring-0 font-bold text-gray-900 placeholder:text-gray-300"
+                                    placeholder={`Option ${String.fromCharCode(65 + oIdx)}`}
+                                    value={opt}
+                                    onChange={(e) => updateOption(qIdx, oIdx, e.target.value)}
+                                  />
+                                </div>
+                                {q.correctAnswer === oIdx && (
+                                  <span className="text-[10px] font-black text-green-600 uppercase tracking-widest">Correct</span>
+                                )}
+                              </div>
+                            ))}
+                          </div>
                         </div>
                       ) : (
                         <div className="p-4 bg-blue-50 rounded-xl border border-blue-100">
