@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { db, collection, getDocs, setDoc, doc, query, where, Timestamp, deleteDoc } from '../lib/firebase';
-import { FileText, Plus, Search, Calendar, Clock, CheckCircle2, Upload, Trash2, Edit2, User, BookOpen } from 'lucide-react';
+import { FileText, Plus, Search, Calendar, Clock, CheckCircle2, Upload, Trash2, Edit2, User, BookOpen, AlertCircle, Loader2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { format } from 'date-fns';
 
@@ -101,24 +101,84 @@ export default function Assignments({ profile }: { profile: any }) {
     }
   };
 
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [pendingSubmissions, setPendingSubmissions] = useState<{ id: string; title: string; progress: number; status: 'reading' | 'saving' | 'complete' | 'error'; error?: string }[]>([]);
+
   const handleSubmitAssignment = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedAssignment) return;
-    try {
-      const id = `${selectedAssignment.id}_${profile.uid}`;
-      await setDoc(doc(db, 'submissions', id), {
-        id,
-        assignmentId: selectedAssignment.id,
-        studentId: profile.uid,
-        fileUrl: submissionData.fileUrl,
-        submittedAt: Timestamp.now()
-      });
-      setIsSubmitModalOpen(false);
-      setSubmissionData({ fileUrl: '' });
-      fetchData();
-    } catch (error) {
-      console.error('Error submitting assignment:', error);
+
+    const fileInput = (e.target as HTMLFormElement).querySelector('input[type="file"]') as HTMLInputElement;
+    const file = fileInput?.files?.[0];
+
+    if (!file && !submissionData.fileUrl) {
+      alert('Please select a file or provide a link');
+      return;
     }
+
+    if (file && file.size > 800 * 1024) {
+      alert('File is too large. Maximum size allowed is 800KB. Please use a smaller file or a link.');
+      return;
+    }
+
+    const submissionId = `${selectedAssignment.id}_${profile.uid}`;
+    const newPending = {
+      id: submissionId,
+      title: selectedAssignment.title,
+      progress: 0,
+      status: 'reading' as const
+    };
+
+    setIsSubmitModalOpen(false);
+    setPendingSubmissions(prev => [...prev, newPending]);
+
+    const processSubmission = async () => {
+      try {
+        let finalFileUrl = submissionData.fileUrl;
+
+        if (file) {
+          finalFileUrl = await new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onprogress = (event) => {
+              if (event.lengthComputable) {
+                const progress = Math.round((event.loaded / event.total) * 100);
+                setPendingSubmissions(prev => prev.map(s => s.id === submissionId ? { ...s, progress } : s));
+              }
+            };
+            reader.onload = () => resolve(reader.result as string);
+            reader.onerror = () => reject(new Error('Failed to read file'));
+            reader.readAsDataURL(file);
+          });
+        }
+
+        setPendingSubmissions(prev => prev.map(s => s.id === submissionId ? { ...s, status: 'saving' as const, progress: 100 } : s));
+
+        await setDoc(doc(db, 'submissions', submissionId), {
+          id: submissionId,
+          assignmentId: selectedAssignment.id,
+          studentId: profile.uid,
+          fileUrl: finalFileUrl,
+          submittedAt: Timestamp.now()
+        });
+
+        setPendingSubmissions(prev => prev.map(s => s.id === submissionId ? { ...s, status: 'complete' as const } : s));
+        
+        setTimeout(() => {
+          setPendingSubmissions(prev => prev.filter(s => s.id !== submissionId));
+          fetchData();
+        }, 4000);
+
+      } catch (error: any) {
+        console.error('Submission Error:', error);
+        setPendingSubmissions(prev => prev.map(s => s.id === submissionId ? { 
+          ...s, 
+          status: 'error' as const, 
+          error: error.message?.includes('too large') ? 'File too large' : 'Upload failed'
+        } : s));
+      }
+    };
+
+    processSubmission();
   };
 
   const handleDeleteAssignment = async (id: string) => {
@@ -129,7 +189,53 @@ export default function Assignments({ profile }: { profile: any }) {
   };
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-8 pb-20">
+      {/* Background Submissions Indicator */}
+      <div className="fixed bottom-8 right-8 z-[60] space-y-4 pointer-events-none">
+        <AnimatePresence>
+          {pendingSubmissions.map((sub) => (
+            <motion.div
+              key={sub.id}
+              initial={{ opacity: 0, x: 50, scale: 0.9 }}
+              animate={{ opacity: 1, x: 0, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.9 }}
+              className="w-80 bg-white rounded-3xl shadow-2xl border border-gray-100 p-6 pointer-events-auto"
+            >
+              <div className="flex items-center gap-4 mb-3">
+                <div className={`w-10 h-10 rounded-2xl flex items-center justify-center ${
+                  sub.status === 'complete' ? 'bg-green-100 text-green-600' :
+                  sub.status === 'error' ? 'bg-red-100 text-red-600' :
+                  'bg-blue-100 text-blue-600'
+                }`}>
+                  {sub.status === 'complete' ? <CheckCircle2 className="w-6 h-6" /> :
+                   sub.status === 'error' ? <AlertCircle className="w-6 h-6" /> :
+                   <Loader2 className="w-6 h-6 animate-spin" />}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <h4 className="font-black text-gray-900 text-sm truncate">{sub.title}</h4>
+                  <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">
+                    {sub.status === 'complete' ? 'Submission Successful' :
+                     sub.status === 'error' ? (sub.error || 'Submission Failed') :
+                     sub.status === 'reading' ? `Reading File (${sub.progress}%)` :
+                     'Saving Submission...'}
+                  </p>
+                </div>
+              </div>
+              {(sub.status === 'reading' || sub.status === 'saving') && (
+                <div className="w-full bg-gray-100 rounded-full h-1.5 overflow-hidden">
+                  <motion.div 
+                    initial={{ width: "0%" }}
+                    animate={{ width: sub.status === 'reading' ? `${sub.progress}%` : "100%" }}
+                    transition={{ duration: sub.status === 'saving' ? 2 : 0.2 }}
+                    className="h-full bg-blue-600"
+                  />
+                </div>
+              )}
+            </motion.div>
+          ))}
+        </AnimatePresence>
+      </div>
+
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-3xl font-black text-gray-900">Assignments & Quizzes</h1>
@@ -356,17 +462,65 @@ export default function Assignments({ profile }: { profile: any }) {
                   <p className="text-sm font-bold text-gray-500 mb-4">
                     Submitting for: <span className="text-gray-900">{selectedAssignment?.title}</span>
                   </p>
-                  <label className="block text-sm font-black text-gray-400 uppercase tracking-widest mb-2">File URL (PDF/Doc)</label>
-                  <input 
-                    required
-                    type="url" 
-                    className="w-full px-5 py-4 bg-gray-50 border-none rounded-2xl focus:ring-2 focus:ring-blue-100 font-bold text-gray-900"
-                    placeholder="https://docs.google.com/..."
-                    value={submissionData.fileUrl}
-                    onChange={(e) => setSubmissionData({ fileUrl: e.target.value })}
-                  />
+                  
+                  <div className="space-y-6">
+                    <div>
+                      <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Upload File</label>
+                      <div 
+                        className="relative group cursor-pointer"
+                        onDragOver={(e) => { e.preventDefault(); e.currentTarget.classList.add('bg-blue-50'); }}
+                        onDragLeave={(e) => { e.preventDefault(); e.currentTarget.classList.remove('bg-blue-50'); }}
+                        onDrop={(e) => {
+                          e.preventDefault();
+                          e.currentTarget.classList.remove('bg-blue-50');
+                          const file = e.dataTransfer.files?.[0];
+                          if (file) {
+                            const input = e.currentTarget.querySelector('input') as HTMLInputElement;
+                            const dataTransfer = new DataTransfer();
+                            dataTransfer.items.add(file);
+                            input.files = dataTransfer.files;
+                          }
+                        }}
+                      >
+                        <div className="w-full px-6 py-8 bg-gray-50 border-2 border-dashed border-gray-200 rounded-[2rem] flex flex-col items-center justify-center gap-3 group-hover:border-blue-400 transition-all">
+                          <div className="p-3 bg-white rounded-2xl shadow-sm text-blue-600 group-hover:scale-110 transition-transform">
+                            <Upload className="w-5 h-5" />
+                          </div>
+                          <div className="text-center">
+                            <p className="text-xs font-black text-gray-900">Click to upload or drag and drop</p>
+                            <p className="text-[9px] font-bold text-gray-400 uppercase tracking-widest mt-1">PDF or Word Document</p>
+                          </div>
+                          <input 
+                            type="file" 
+                            accept=".pdf,.doc,.docx"
+                            className="absolute inset-0 opacity-0 cursor-pointer"
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="relative">
+                      <div className="absolute inset-0 flex items-center">
+                        <div className="w-full border-t border-gray-100"></div>
+                      </div>
+                      <div className="relative flex justify-center text-[10px] uppercase tracking-widest font-black">
+                        <span className="bg-white px-4 text-gray-400">Or Provide Link</span>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">File URL</label>
+                      <input 
+                        type="url" 
+                        className="w-full px-5 py-4 bg-gray-50 border-none rounded-2xl focus:ring-2 focus:ring-blue-100 font-bold text-gray-900"
+                        placeholder="https://docs.google.com/..."
+                        value={submissionData.fileUrl}
+                        onChange={(e) => setSubmissionData({ fileUrl: e.target.value })}
+                      />
+                    </div>
+                  </div>
                 </div>
-                <button type="submit" className="w-full py-4 bg-green-600 text-white rounded-2xl font-bold hover:bg-green-700 transition-all shadow-lg shadow-green-100">
+                <button type="submit" className="w-full py-5 bg-green-600 text-white rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-green-700 transition-all shadow-xl shadow-green-100">
                   Confirm Submission
                 </button>
               </form>

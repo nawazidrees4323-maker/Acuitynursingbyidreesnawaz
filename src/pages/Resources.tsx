@@ -62,75 +62,88 @@ export default function Resources({ profile }: { profile: any }) {
     fetchData();
   }, []);
 
-  const [isUploading, setIsUploading] = useState(false);
-  const [uploadProgress, setUploadProgress] = useState(0);
-  const [pendingUploads, setPendingUploads] = useState<{ id: string; title: string; progress: number; status: 'uploading' | 'saving' | 'complete' | 'error' }[]>([]);
-
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    setIsUploading(true);
-    setUploadProgress(0);
-    const reader = new FileReader();
-
-    reader.onprogress = (event) => {
-      if (event.lengthComputable) {
-        const progress = Math.round((event.loaded / event.total) * 100);
-        setUploadProgress(progress);
-      }
-    };
-
-    reader.onloadend = () => {
-      setFormData({ ...formData, fileUrl: reader.result as string });
-      setIsUploading(false);
-      setUploadProgress(100);
-    };
-    reader.readAsDataURL(file);
-  };
+  const [pendingUploads, setPendingUploads] = useState<{ id: string; title: string; progress: number; status: 'reading' | 'saving' | 'complete' | 'error'; error?: string }[]>([]);
 
   const handleSaveResource = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formData.fileUrl) {
-      alert('Please upload a file or provide a link');
+    const fileInput = (e.target as HTMLFormElement).querySelector('input[type="file"]') as HTMLInputElement;
+    const file = fileInput?.files?.[0];
+
+    if (!file && !formData.fileUrl) {
+      alert('Please select a file');
+      return;
+    }
+
+    // Check file size (Firestore limit is 1MB total per doc, base64 adds ~33% overhead)
+    if (file && file.size > 800 * 1024) {
+      alert('File is too large. Maximum size allowed is 800KB for cloud storage. Please use a smaller file or a link.');
       return;
     }
 
     const uploadId = Math.random().toString(36).substr(2, 9);
     const newUpload = {
       id: uploadId,
-      title: formData.title,
-      progress: 100,
-      status: 'saving' as const
+      title: formData.title || file?.name || 'Untitled Resource',
+      progress: 0,
+      status: 'reading' as const
     };
 
     // Close modal immediately
     setIsModalOpen(false);
     setPendingUploads(prev => [...prev, newUpload]);
 
-    // Store current form data to avoid closure issues with state updates
     const resourceData = { ...formData };
     setFormData({ title: '', type: 'pdf', category: 'book', fileUrl: '', courseId: '', subjectId: '', chapter: '' });
-    setUploadProgress(0);
 
-    try {
-      await setDoc(doc(db, 'resources', uploadId), {
-        id: uploadId,
-        ...resourceData,
-        createdAt: new Date()
-      });
-      
-      setPendingUploads(prev => prev.map(u => u.id === uploadId ? { ...u, status: 'complete' as const } : u));
-      
-      // Remove from list after a delay
-      setTimeout(() => {
-        setPendingUploads(prev => prev.filter(u => u.id !== uploadId));
-        fetchData();
-      }, 3000);
-    } catch (error) {
-      console.error('Error saving resource:', error);
-      setPendingUploads(prev => prev.map(u => u.id === uploadId ? { ...u, status: 'error' as const } : u));
-    }
+    const processUpload = async () => {
+      try {
+        let finalFileUrl = resourceData.fileUrl;
+
+        if (file) {
+          // 1. Read file with real progress
+          finalFileUrl = await new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onprogress = (event) => {
+              if (event.lengthComputable) {
+                const progress = Math.round((event.loaded / event.total) * 100);
+                setPendingUploads(prev => prev.map(u => u.id === uploadId ? { ...u, progress } : u));
+              }
+            };
+            reader.onload = () => resolve(reader.result as string);
+            reader.onerror = () => reject(new Error('Failed to read file'));
+            reader.readAsDataURL(file);
+          });
+        }
+
+        // 2. Save to Firestore
+        setPendingUploads(prev => prev.map(u => u.id === uploadId ? { ...u, status: 'saving' as const, progress: 100 } : u));
+        
+        await setDoc(doc(db, 'resources', uploadId), {
+          ...resourceData,
+          id: uploadId,
+          fileUrl: finalFileUrl,
+          createdAt: new Date()
+        });
+        
+        setPendingUploads(prev => prev.map(u => u.id === uploadId ? { ...u, status: 'complete' as const } : u));
+        
+        // Refresh and cleanup
+        setTimeout(() => {
+          setPendingUploads(prev => prev.filter(u => u.id !== uploadId));
+          fetchData();
+        }, 4000);
+
+      } catch (error: any) {
+        console.error('Upload Error:', error);
+        setPendingUploads(prev => prev.map(u => u.id === uploadId ? { 
+          ...u, 
+          status: 'error' as const, 
+          error: error.message?.includes('too large') ? 'File too large for database' : 'Upload failed'
+        } : u));
+      }
+    };
+
+    processUpload();
   };
 
   const handleDeleteResource = async (id: string) => {
@@ -194,17 +207,18 @@ export default function Resources({ profile }: { profile: any }) {
                   <h4 className="font-black text-gray-900 text-sm truncate">{upload.title}</h4>
                   <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">
                     {upload.status === 'complete' ? 'Saved to Library' :
-                     upload.status === 'error' ? 'Upload Failed' :
+                     upload.status === 'error' ? (upload.error || 'Upload Failed') :
+                     upload.status === 'reading' ? `Reading File (${upload.progress}%)` :
                      'Saving to Cloud...'}
                   </p>
                 </div>
               </div>
-              {upload.status === 'saving' && (
+              {(upload.status === 'reading' || upload.status === 'saving') && (
                 <div className="w-full bg-gray-100 rounded-full h-1.5 overflow-hidden">
                   <motion.div 
                     initial={{ width: "0%" }}
-                    animate={{ width: "100%" }}
-                    transition={{ duration: 2 }}
+                    animate={{ width: upload.status === 'reading' ? `${upload.progress}%` : "100%" }}
+                    transition={{ duration: upload.status === 'saving' ? 2 : 0.2 }}
                     className="h-full bg-blue-600"
                   />
                 </div>
@@ -513,29 +527,38 @@ export default function Resources({ profile }: { profile: any }) {
 
                   <div>
                     <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Upload File</label>
-                    <div className="relative space-y-2">
-                      <input 
-                        type="file" 
-                        accept=".pdf,.ppt,.pptx,.doc,.docx,image/*"
-                        onChange={handleFileChange}
-                        className="w-full px-6 py-4 bg-gray-50 border-none rounded-2xl focus:ring-2 focus:ring-blue-100 font-bold text-gray-900 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-[10px] file:font-black file:bg-blue-600 file:text-white hover:file:bg-blue-700 disabled:opacity-50"
-                        disabled={isUploading}
-                      />
-                      {(isUploading || uploadProgress > 0) && (
-                        <div className="w-full bg-gray-100 rounded-full h-2 overflow-hidden">
-                          <motion.div 
-                            initial={{ width: 0 }}
-                            animate={{ width: `${uploadProgress}%` }}
-                            className="h-full bg-blue-600"
-                          />
+                    <div 
+                      className="relative group cursor-pointer"
+                      onDragOver={(e) => { e.preventDefault(); e.currentTarget.classList.add('bg-blue-50'); }}
+                      onDragLeave={(e) => { e.preventDefault(); e.currentTarget.classList.remove('bg-blue-50'); }}
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        e.currentTarget.classList.remove('bg-blue-50');
+                        const file = e.dataTransfer.files?.[0];
+                        if (file) {
+                          const input = e.currentTarget.querySelector('input') as HTMLInputElement;
+                          const dataTransfer = new DataTransfer();
+                          dataTransfer.items.add(file);
+                          input.files = dataTransfer.files;
+                          // Trigger change manually if needed, but here we'll just let the form handle it on submit
+                        }
+                      }}
+                    >
+                      <div className="w-full px-6 py-10 bg-gray-50 border-2 border-dashed border-gray-200 rounded-[2rem] flex flex-col items-center justify-center gap-3 group-hover:border-blue-400 transition-all">
+                        <div className="p-4 bg-white rounded-2xl shadow-sm text-blue-600 group-hover:scale-110 transition-transform">
+                          <Upload className="w-6 h-6" />
                         </div>
-                      )}
-                      {uploadProgress === 100 && !isUploading && (
-                        <p className="text-[10px] font-black text-green-600 uppercase tracking-widest flex items-center gap-1">
-                          <CheckCircle2 className="w-3 h-3" />
-                          File Ready
-                        </p>
-                      )}
+                        <div className="text-center">
+                          <p className="text-sm font-black text-gray-900">Click to upload or drag and drop</p>
+                          <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mt-1">PDF, PPT, DOC or Images</p>
+                        </div>
+                        <input 
+                          type="file" 
+                          accept=".pdf,.ppt,.pptx,.doc,.docx,image/*"
+                          className="absolute inset-0 opacity-0 cursor-pointer"
+                        />
+                      </div>
+                      <p className="text-[9px] text-gray-400 font-medium italic mt-2 text-center">Max size: 800KB (Cloud limit)</p>
                     </div>
                   </div>
                 </div>
@@ -550,10 +573,9 @@ export default function Resources({ profile }: { profile: any }) {
                   </button>
                   <button 
                     type="submit" 
-                    disabled={isUploading || !formData.fileUrl}
-                    className="flex-[2] py-5 bg-blue-600 text-white rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-blue-700 transition-all shadow-xl shadow-blue-100 disabled:opacity-50"
+                    className="flex-[2] py-5 bg-blue-600 text-white rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-blue-700 transition-all shadow-xl shadow-blue-100"
                   >
-                    {isUploading ? 'Reading File...' : 'Save to Library'}
+                    Save to Library
                   </button>
                 </div>
               </form>

@@ -141,7 +141,20 @@ function PendingApproval({ profile }: { profile: UserProfile }) {
 
 // Layout Component
 function Layout({ user, profile }: { user: FirebaseUser, profile: UserProfile }) {
-  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(window.innerWidth >= 1024);
+
+  useEffect(() => {
+    const handleResize = () => {
+      if (window.innerWidth < 1024) {
+        setIsSidebarOpen(false);
+      } else {
+        setIsSidebarOpen(true);
+      }
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
   const location = useLocation();
 
   const navItems = [
@@ -157,29 +170,66 @@ function Layout({ user, profile }: { user: FirebaseUser, profile: UserProfile })
     { name: 'Notifications', path: '/notifications', icon: Bell, roles: ['admin', 'teacher', 'student'] },
   ];
 
-  const filteredNav = navItems.filter(item => item.roles.includes(profile.role));
+  const getFilteredNav = () => {
+    const filtered = navItems.filter(item => item.roles.includes(profile.role));
+    
+    if (profile.role === 'student') {
+      const studentOrder = ['Attendance', 'Quizzes', 'Library', 'About Academy'];
+      const prioritized = filtered.filter(item => studentOrder.includes(item.name));
+      const others = filtered.filter(item => !studentOrder.includes(item.name));
+      
+      // Sort prioritized items according to studentOrder
+      prioritized.sort((a, b) => studentOrder.indexOf(a.name) - studentOrder.indexOf(b.name));
+      
+      return [...prioritized, ...others];
+    }
+    
+    return filtered;
+  };
+
+  const filteredNav = getFilteredNav();
 
   return (
-    <div className="flex h-screen bg-[#F8F9FA] overflow-hidden">
+    <div className="flex h-screen bg-[#F8F9FA] overflow-hidden relative">
+      {/* Mobile Sidebar Overlay */}
+      <AnimatePresence>
+        {isSidebarOpen && window.innerWidth < 1024 && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setIsSidebarOpen(false)}
+            className="fixed inset-0 bg-black/20 z-30 lg:hidden"
+          />
+        )}
+      </AnimatePresence>
+
       {/* Sidebar */}
       <motion.aside 
         initial={false}
-        animate={{ width: isSidebarOpen ? 280 : 80 }}
-        className="bg-white border-r border-gray-200 flex flex-col z-20"
+        animate={{ 
+          width: isSidebarOpen ? 260 : 0,
+          x: (isSidebarOpen || window.innerWidth >= 1024) ? 0 : -260,
+          opacity: (isSidebarOpen || window.innerWidth >= 1024) ? 1 : 0
+        }}
+        transition={{ type: "spring", damping: 25, stiffness: 200 }}
+        className={`fixed lg:relative bg-white border-r border-gray-200 flex flex-col z-40 h-full shadow-2xl lg:shadow-none ${!isSidebarOpen && 'pointer-events-none lg:pointer-events-auto'}`}
       >
-        <div className="p-6 flex items-center gap-3 border-b border-gray-100">
-          <div className="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center text-white shrink-0">
-            <GraduationCap className="w-6 h-6" />
-          </div>
-          {isSidebarOpen && (
-            <motion.span 
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              className="font-bold text-lg text-gray-900 truncate"
-            >
+        <div className="p-6 flex items-center justify-between border-b border-gray-100">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center text-white shrink-0">
+              <GraduationCap className="w-6 h-6" />
+            </div>
+            <span className="font-bold text-lg text-gray-900 truncate">
               Acuity Nursing
-            </motion.span>
-          )}
+            </span>
+          </div>
+          <button 
+            onClick={() => setIsSidebarOpen(false)}
+            className="lg:hidden p-2 hover:bg-gray-100 rounded-lg text-gray-400"
+          >
+            <X className="w-5 h-5" />
+          </button>
         </div>
 
         <nav className="flex-1 p-4 space-y-2 overflow-y-auto">
@@ -187,6 +237,7 @@ function Layout({ user, profile }: { user: FirebaseUser, profile: UserProfile })
             <Link 
               key={item.path} 
               to={item.path}
+              onClick={() => window.innerWidth < 1024 && setIsSidebarOpen(false)}
               className={`flex items-center gap-3 p-3 rounded-xl transition-all group ${
                 location.pathname === item.path 
                   ? 'bg-blue-50 text-blue-600' 
@@ -194,7 +245,7 @@ function Layout({ user, profile }: { user: FirebaseUser, profile: UserProfile })
               }`}
             >
               <item.icon className={`w-5 h-5 shrink-0 ${location.pathname === item.path ? 'text-blue-600' : 'text-gray-400 group-hover:text-gray-600'}`} />
-              {isSidebarOpen && <span className="font-medium">{item.name}</span>}
+              <span className="font-medium">{item.name}</span>
             </Link>
           ))}
         </nav>
@@ -205,20 +256,25 @@ function Layout({ user, profile }: { user: FirebaseUser, profile: UserProfile })
             className="flex items-center gap-3 w-full p-3 text-red-500 hover:bg-red-50 rounded-xl transition-all group"
           >
             <LogOut className="w-5 h-5 shrink-0" />
-            {isSidebarOpen && <span className="font-medium">Logout</span>}
+            <span className="font-medium">Logout</span>
           </button>
         </div>
       </motion.aside>
 
       {/* Main Content */}
-      <div className="flex-1 flex flex-col overflow-hidden">
-        <header className="h-20 bg-white border-b border-gray-200 flex items-center justify-between px-8 shrink-0">
-          <button 
-            onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-            className="p-2 hover:bg-gray-100 rounded-lg text-gray-500"
-          >
-            {isSidebarOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
-          </button>
+      <div className="flex-1 flex flex-col overflow-hidden w-full">
+        <header className="h-20 bg-white border-b border-gray-200 flex items-center justify-between px-4 lg:px-8 shrink-0 z-10">
+          <div className="flex items-center gap-4">
+            <button 
+              onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+              className="p-2 hover:bg-gray-100 rounded-lg text-gray-500"
+            >
+              <Menu className="w-5 h-5" />
+            </button>
+            <h2 className="text-sm font-bold text-gray-400 uppercase tracking-widest hidden sm:block">
+              {filteredNav.find(item => item.path === location.pathname)?.name || 'Dashboard'}
+            </h2>
+          </div>
 
           <div className="flex items-center gap-4">
             <div className="text-right hidden sm:block">
@@ -234,7 +290,7 @@ function Layout({ user, profile }: { user: FirebaseUser, profile: UserProfile })
           </div>
         </header>
 
-        <main className="flex-1 overflow-y-auto p-8">
+        <main className="flex-1 overflow-y-auto p-4 lg:p-8 w-full max-w-[1600px] mx-auto">
           <AnimatePresence mode="wait">
             <motion.div
               key={location.pathname}
@@ -242,6 +298,7 @@ function Layout({ user, profile }: { user: FirebaseUser, profile: UserProfile })
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -10 }}
               transition={{ duration: 0.2 }}
+              className="h-full"
             >
               <Outlet />
             </motion.div>
