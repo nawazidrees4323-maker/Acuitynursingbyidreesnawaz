@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { db, collection, getDocs, setDoc, doc, deleteDoc, query, where } from '../lib/firebase';
-import { Upload, FileText, Video, Book, Search, Plus, Trash2, ExternalLink, Filter, BookOpen, CheckCircle2 } from 'lucide-react';
+import { Upload, FileText, Video, Book, Search, Plus, Trash2, ExternalLink, Filter, BookOpen, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 interface Resource {
@@ -64,7 +64,7 @@ export default function Resources({ profile }: { profile: any }) {
 
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
-  const [showSuccess, setShowSuccess] = useState(false);
+  const [pendingUploads, setPendingUploads] = useState<{ id: string; title: string; progress: number; status: 'uploading' | 'saving' | 'complete' | 'error' }[]>([]);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -95,23 +95,41 @@ export default function Resources({ profile }: { profile: any }) {
       alert('Please upload a file or provide a link');
       return;
     }
+
+    const uploadId = Math.random().toString(36).substr(2, 9);
+    const newUpload = {
+      id: uploadId,
+      title: formData.title,
+      progress: 100,
+      status: 'saving' as const
+    };
+
+    // Close modal immediately
+    setIsModalOpen(false);
+    setPendingUploads(prev => [...prev, newUpload]);
+
+    // Store current form data to avoid closure issues with state updates
+    const resourceData = { ...formData };
+    setFormData({ title: '', type: 'pdf', category: 'book', fileUrl: '', courseId: '', subjectId: '', chapter: '' });
+    setUploadProgress(0);
+
     try {
-      const id = Math.random().toString(36).substr(2, 9);
-      await setDoc(doc(db, 'resources', id), {
-        id,
-        ...formData,
+      await setDoc(doc(db, 'resources', uploadId), {
+        id: uploadId,
+        ...resourceData,
         createdAt: new Date()
       });
-      setShowSuccess(true);
+      
+      setPendingUploads(prev => prev.map(u => u.id === uploadId ? { ...u, status: 'complete' as const } : u));
+      
+      // Remove from list after a delay
       setTimeout(() => {
-        setShowSuccess(false);
-        setIsModalOpen(false);
-        setFormData({ title: '', type: 'pdf', category: 'book', fileUrl: '', courseId: '', subjectId: '', chapter: '' });
-        setUploadProgress(0);
+        setPendingUploads(prev => prev.filter(u => u.id !== uploadId));
         fetchData();
-      }, 2000);
+      }, 3000);
     } catch (error) {
       console.error('Error saving resource:', error);
+      setPendingUploads(prev => prev.map(u => u.id === uploadId ? { ...u, status: 'error' as const } : u));
     }
   };
 
@@ -151,6 +169,51 @@ export default function Resources({ profile }: { profile: any }) {
 
   return (
     <div className="space-y-8 pb-20">
+      {/* Background Uploads Indicator */}
+      <div className="fixed bottom-8 right-8 z-[60] space-y-4 pointer-events-none">
+        <AnimatePresence>
+          {pendingUploads.map((upload) => (
+            <motion.div
+              key={upload.id}
+              initial={{ opacity: 0, x: 50, scale: 0.9 }}
+              animate={{ opacity: 1, x: 0, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.9 }}
+              className="w-80 bg-white rounded-3xl shadow-2xl border border-gray-100 p-6 pointer-events-auto"
+            >
+              <div className="flex items-center gap-4 mb-3">
+                <div className={`w-10 h-10 rounded-2xl flex items-center justify-center ${
+                  upload.status === 'complete' ? 'bg-green-100 text-green-600' :
+                  upload.status === 'error' ? 'bg-red-100 text-red-600' :
+                  'bg-blue-100 text-blue-600'
+                }`}>
+                  {upload.status === 'complete' ? <CheckCircle2 className="w-6 h-6" /> :
+                   upload.status === 'error' ? <AlertCircle className="w-6 h-6" /> :
+                   <Loader2 className="w-6 h-6 animate-spin" />}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <h4 className="font-black text-gray-900 text-sm truncate">{upload.title}</h4>
+                  <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">
+                    {upload.status === 'complete' ? 'Saved to Library' :
+                     upload.status === 'error' ? 'Upload Failed' :
+                     'Saving to Cloud...'}
+                  </p>
+                </div>
+              </div>
+              {upload.status === 'saving' && (
+                <div className="w-full bg-gray-100 rounded-full h-1.5 overflow-hidden">
+                  <motion.div 
+                    initial={{ width: "0%" }}
+                    animate={{ width: "100%" }}
+                    transition={{ duration: 2 }}
+                    className="h-full bg-blue-600"
+                  />
+                </div>
+              )}
+            </motion.div>
+          ))}
+        </AnimatePresence>
+      </div>
+
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-4xl font-black text-gray-900 tracking-tight">Digital Library</h1>
@@ -477,33 +540,17 @@ export default function Resources({ profile }: { profile: any }) {
                   </div>
                 </div>
 
-                <div className="pt-4 flex gap-4 relative">
-                  <AnimatePresence>
-                    {showSuccess && (
-                      <motion.div 
-                        initial={{ opacity: 0, y: 10 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        exit={{ opacity: 0, y: -10 }}
-                        className="absolute inset-0 z-10 bg-white flex items-center justify-center gap-3"
-                      >
-                        <div className="w-10 h-10 bg-green-100 text-green-600 rounded-full flex items-center justify-center">
-                          <CheckCircle2 className="w-6 h-6" />
-                        </div>
-                        <p className="font-black text-green-600 uppercase tracking-widest text-sm">Material Saved Successfully!</p>
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
+                <div className="pt-4 flex gap-4">
                   <button 
                     type="button"
-                    disabled={showSuccess}
                     onClick={() => setIsModalOpen(false)}
-                    className="flex-1 py-5 bg-gray-50 text-gray-500 rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-gray-100 transition-all disabled:opacity-0"
+                    className="flex-1 py-5 bg-gray-50 text-gray-500 rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-gray-100 transition-all"
                   >
                     Cancel
                   </button>
                   <button 
                     type="submit" 
-                    disabled={showSuccess || isUploading || !formData.fileUrl}
+                    disabled={isUploading || !formData.fileUrl}
                     className="flex-[2] py-5 bg-blue-600 text-white rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-blue-700 transition-all shadow-xl shadow-blue-100 disabled:opacity-50"
                   >
                     {isUploading ? 'Reading File...' : 'Save to Library'}
