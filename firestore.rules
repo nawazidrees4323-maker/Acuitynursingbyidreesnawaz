@@ -103,7 +103,7 @@ service cloud.firestore {
     function isAdmin() {
       return isAuthenticated() &&
         (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
-          (request.auth.token.email == "nawazidrees4323@gmail.com" && request.auth.token.email_verified == true));
+          request.auth.token.email == "nawazidrees4323@gmail.com");
     }
 
     function isTeacher() {
@@ -199,8 +199,8 @@ service cloud.firestore {
     }
 
     match /quiz_results/{resultId} {
-      allow read: if isAdmin() || isTeacher() || (isStudent() && isApproved() && request.auth.uid == resource.data.studentId);
-      allow create: if isStudent() && isApproved() && request.auth.uid == request.resource.data.studentId;
+      allow read: if isApproved();
+      allow create: if isApproved() && request.auth.uid == request.resource.data.studentId;
       allow update, delete: if isAdmin();
     }
 

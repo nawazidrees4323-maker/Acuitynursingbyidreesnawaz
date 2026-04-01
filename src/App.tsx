@@ -2,6 +2,10 @@ import React, { useEffect, useState } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, Link, useLocation, Outlet } from 'react-router-dom';
 import { auth, db, onAuthStateChanged, doc, getDoc, setDoc, Timestamp, FirebaseUser, onSnapshot } from './lib/firebase';
 import { 
+  Library,
+  Info,
+  Download,
+  ExternalLink,
   Users, 
   BookOpen, 
   Calendar, 
@@ -38,6 +42,7 @@ import Assignments from './pages/Assignments';
 import Resources from './pages/Resources';
 import Notifications from './pages/Notifications';
 import Quizzes from './pages/Quizzes';
+import AboutAcademy from './pages/AboutAcademy';
 
 // Types
 export type UserRole = 'admin' | 'teacher' | 'student';
@@ -147,7 +152,8 @@ function Layout({ user, profile }: { user: FirebaseUser, profile: UserProfile })
     { name: 'Fees', path: '/fees', icon: CreditCard, roles: ['admin', 'student'] },
     { name: 'Assignments', path: '/assignments', icon: FileText, roles: ['admin', 'teacher', 'student'] },
     { name: 'Quizzes', path: '/quizzes', icon: BrainCircuit, roles: ['admin', 'teacher', 'student'] },
-    { name: 'Resources', path: '/resources', icon: Upload, roles: ['admin', 'teacher', 'student'] },
+    { name: 'Library', path: '/resources', icon: Library, roles: ['admin', 'teacher', 'student'] },
+    { name: 'About Academy', path: '/about', icon: Info, roles: ['admin', 'teacher', 'student'] },
     { name: 'Notifications', path: '/notifications', icon: Bell, roles: ['admin', 'teacher', 'student'] },
   ];
 
@@ -317,6 +323,7 @@ export default function App() {
                 <Route path="assignments" element={<Assignments profile={profile} />} />
                 <Route path="quizzes" element={<Quizzes profile={profile} />} />
                 <Route path="resources" element={<Resources profile={profile} />} />
+                <Route path="about" element={<AboutAcademy />} />
                 <Route path="notifications" element={<Notifications profile={profile} />} />
               </Route>
             ) : (

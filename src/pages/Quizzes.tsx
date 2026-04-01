@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { db, collection, getDocs, setDoc, doc, deleteDoc, Timestamp, query, where, addDoc, onSnapshot } from '../lib/firebase';
-import { BrainCircuit, Plus, Trash2, Clock, CheckCircle2, XCircle, ChevronRight, Play, Save, ListChecks } from 'lucide-react';
+import { BrainCircuit, Plus, Trash2, Clock, CheckCircle2, XCircle, ChevronRight, Play, Save, ListChecks, TrendingUp } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { UserProfile } from '../App';
 
@@ -31,6 +31,7 @@ export default function Quizzes({ profile }: { profile: UserProfile }) {
   const [quizResults, setQuizResults] = useState<any>(null);
   const [allResults, setAllResults] = useState<any[]>([]);
   const [showAnalytics, setShowAnalytics] = useState(false);
+  const [showLeaderboard, setShowLeaderboard] = useState(false);
 
   // New Quiz Form State
   const [isBulkMode, setIsBulkMode] = useState(false);
@@ -95,8 +96,8 @@ export default function Quizzes({ profile }: { profile: UserProfile }) {
     fetchSubjects();
     
     let unsubscribeResults: (() => void) | undefined;
-    if (profile.role === 'admin' || profile.role === 'teacher') {
-      // Use onSnapshot for real-time analytics updates
+    if (profile.status === 'approved') {
+      // Use onSnapshot for real-time analytics and leaderboard updates
       const resultsQuery = query(collection(db, 'quiz_results'));
       unsubscribeResults = onSnapshot(resultsQuery, (snapshot) => {
         const results = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
@@ -244,6 +245,30 @@ export default function Quizzes({ profile }: { profile: UserProfile }) {
     }
   };
 
+  const getTopScorers = () => {
+    const studentScores: { [key: string]: { name: string, totalScore: number, quizzesTaken: number } } = {};
+    
+    allResults.forEach(res => {
+      if (!studentScores[res.studentId]) {
+        studentScores[res.studentId] = { name: res.studentName, totalScore: 0, quizzesTaken: 0 };
+      }
+      studentScores[res.studentId].totalScore += res.percentage;
+      studentScores[res.studentId].quizzesTaken += 1;
+    });
+
+    return Object.entries(studentScores)
+      .map(([id, data]) => ({
+        id,
+        name: data.name,
+        average: Math.round(data.totalScore / data.quizzesTaken),
+        quizzes: data.quizzesTaken
+      }))
+      .sort((a, b) => b.average - a.average)
+      .slice(0, 10);
+  };
+
+  const topScorers = getTopScorers();
+
   return (
     <div className="space-y-8 font-sans">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -251,11 +276,26 @@ export default function Quizzes({ profile }: { profile: UserProfile }) {
           <h1 className="text-3xl font-black text-gray-900 tracking-tight">Quizzes & Exams</h1>
           <p className="text-gray-500 font-medium">Test your knowledge and track progress</p>
         </div>
-        <div className="flex gap-3">
+        <div className="flex flex-wrap gap-3">
+          <button 
+            onClick={() => {
+              setShowLeaderboard(!showLeaderboard);
+              setShowAnalytics(false);
+            }}
+            className={`px-6 py-3 rounded-2xl font-bold transition-all flex items-center justify-center gap-2 ${
+              showLeaderboard ? 'bg-indigo-100 text-indigo-700' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+            }`}
+          >
+            <TrendingUp className="w-5 h-5" />
+            Leaderboard
+          </button>
           {(profile.role === 'admin' || profile.role === 'teacher') && (
             <>
               <button 
-                onClick={() => setShowAnalytics(!showAnalytics)}
+                onClick={() => {
+                  setShowAnalytics(!showAnalytics);
+                  setShowLeaderboard(false);
+                }}
                 className={`px-6 py-3 rounded-2xl font-bold transition-all flex items-center justify-center gap-2 ${
                   showAnalytics ? 'bg-amber-100 text-amber-700' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
                 }`}
@@ -275,7 +315,85 @@ export default function Quizzes({ profile }: { profile: UserProfile }) {
         </div>
       </div>
 
-      {showAnalytics ? (
+      {showLeaderboard ? (
+        <div className="space-y-8">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            {topScorers.slice(0, 3).map((scorer, idx) => (
+              <motion.div 
+                key={scorer.id}
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: idx * 0.1 }}
+                className={`p-8 rounded-[2.5rem] border-2 text-center relative overflow-hidden ${
+                  idx === 0 ? 'bg-gradient-to-br from-amber-400 to-amber-600 border-amber-300 text-white' :
+                  idx === 1 ? 'bg-white border-gray-100 text-gray-900' :
+                  'bg-white border-gray-100 text-gray-900'
+                }`}
+              >
+                {idx === 0 && <div className="absolute top-4 right-4 text-4xl opacity-20">🏆</div>}
+                <div className={`w-16 h-16 mx-auto mb-4 rounded-2xl flex items-center justify-center text-2xl font-black shadow-lg ${
+                  idx === 0 ? 'bg-white text-amber-600' : 'bg-blue-50 text-blue-600'
+                }`}>
+                  {idx + 1}
+                </div>
+                <h3 className="text-xl font-black mb-1">{scorer.name}</h3>
+                <p className={`text-sm font-bold uppercase tracking-widest ${idx === 0 ? 'text-amber-100' : 'text-gray-400'}`}>
+                  {scorer.average}% Average
+                </p>
+                <div className={`mt-4 inline-block px-4 py-1 rounded-full text-[10px] font-black uppercase tracking-widest ${
+                  idx === 0 ? 'bg-white/20 text-white' : 'bg-gray-100 text-gray-500'
+                }`}>
+                  {scorer.quizzes} Quizzes Taken
+                </div>
+              </motion.div>
+            ))}
+          </div>
+
+          <div className="bg-white rounded-[2.5rem] border border-gray-100 overflow-hidden shadow-sm">
+            <div className="p-8 border-b border-gray-100">
+              <h2 className="text-xl font-black text-gray-900">Top Performers</h2>
+              <p className="text-sm text-gray-500 font-medium">The brightest minds of the academy</p>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="bg-gray-50">
+                    <th className="px-8 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest">Rank</th>
+                    <th className="px-8 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest">Student</th>
+                    <th className="px-8 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest text-center">Avg. Score</th>
+                    <th className="px-8 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest text-right">Quizzes</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {topScorers.map((scorer, idx) => (
+                    <tr key={scorer.id} className="hover:bg-gray-50 transition-all">
+                      <td className="px-8 py-5">
+                        <span className={`w-8 h-8 rounded-lg flex items-center justify-center font-black text-sm ${
+                          idx === 0 ? 'bg-amber-100 text-amber-600' :
+                          idx === 1 ? 'bg-gray-100 text-gray-600' :
+                          idx === 2 ? 'bg-orange-50 text-orange-600' :
+                          'text-gray-400'
+                        }`}>
+                          {idx + 1}
+                        </span>
+                      </td>
+                      <td className="px-8 py-5">
+                        <p className="font-bold text-gray-900">{scorer.name}</p>
+                      </td>
+                      <td className="px-8 py-5 text-center">
+                        <span className="text-lg font-black text-blue-600">{scorer.average}%</span>
+                      </td>
+                      <td className="px-8 py-5 text-right font-bold text-gray-500">
+                        {scorer.quizzes}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      ) : showAnalytics ? (
         <div className="bg-white rounded-[2.5rem] border border-gray-100 overflow-hidden shadow-sm">
           <div className="p-8 border-b border-gray-100">
             <h2 className="text-xl font-black text-gray-900">Quiz Analytics</h2>

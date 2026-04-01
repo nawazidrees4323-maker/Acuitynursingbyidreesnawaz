@@ -6,22 +6,17 @@ import { motion, AnimatePresence } from 'motion/react';
 interface Resource {
   id: string;
   title: string;
-  type: 'pdf' | 'ppt' | 'video' | 'book';
+  type: 'pdf' | 'ppt' | 'video' | 'book' | 'slide';
+  category: 'book' | 'slide';
   fileUrl: string;
   courseId: string;
   subjectId?: string;
+  chapter?: string;
+  createdAt: any;
 }
 
-interface Course {
-  id: string;
-  name: string;
-}
-
-interface Subject {
-  id: string;
-  name: string;
-  courseId: string;
-}
+interface Course { id: string; name: string; }
+interface Subject { id: string; name: string; courseId: string; }
 
 export default function Resources({ profile }: { profile: any }) {
   const [resources, setResources] = useState<Resource[]>([]);
@@ -30,14 +25,17 @@ export default function Resources({ profile }: { profile: any }) {
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
-  const [filterType, setFilterType] = useState('all');
+  const [activeTab, setActiveTab] = useState<'book' | 'slide'>('book');
+  const [selectedSubject, setSelectedSubject] = useState('all');
 
   const [formData, setFormData] = useState({
     title: '',
     type: 'pdf' as const,
+    category: 'book' as const,
     fileUrl: '',
     courseId: '',
-    subjectId: ''
+    subjectId: '',
+    chapter: ''
   });
 
   const isTeacher = profile.role === 'teacher';
@@ -70,12 +68,9 @@ export default function Resources({ profile }: { profile: any }) {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    // Simulate upload
     setIsUploading(true);
     const reader = new FileReader();
     reader.onloadend = () => {
-      // For demo purposes, we'll use base64 for small files
-      // In a real app, you'd upload to Firebase Storage
       setFormData({ ...formData, fileUrl: reader.result as string });
       setIsUploading(false);
     };
@@ -92,10 +87,11 @@ export default function Resources({ profile }: { profile: any }) {
       const id = Math.random().toString(36).substr(2, 9);
       await setDoc(doc(db, 'resources', id), {
         id,
-        ...formData
+        ...formData,
+        createdAt: new Date()
       });
       setIsModalOpen(false);
-      setFormData({ title: '', type: 'pdf', fileUrl: '', courseId: '', subjectId: '' });
+      setFormData({ title: '', type: 'pdf', category: 'book', fileUrl: '', courseId: '', subjectId: '', chapter: '' });
       fetchData();
     } catch (error) {
       console.error('Error saving resource:', error);
@@ -111,9 +107,20 @@ export default function Resources({ profile }: { profile: any }) {
 
   const filteredResources = resources.filter(r => {
     const matchesSearch = r.title.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesType = filterType === 'all' || r.type === filterType;
-    return matchesSearch && matchesType;
+    const matchesCategory = r.category === activeTab;
+    const matchesSubject = selectedSubject === 'all' || r.subjectId === selectedSubject;
+    return matchesSearch && matchesCategory && matchesSubject;
   });
+
+  // Group slides by subject and chapter
+  const groupedSlides = filteredResources.reduce((acc: any, slide) => {
+    const subjectName = subjects.find(s => s.id === slide.subjectId)?.name || 'General';
+    if (!acc[subjectName]) acc[subjectName] = {};
+    const chapter = slide.chapter || 'General';
+    if (!acc[subjectName][chapter]) acc[subjectName][chapter] = [];
+    acc[subjectName][chapter].push(slide);
+    return acc;
+  }, {});
 
   const getIcon = (type: string) => {
     switch (type) {
@@ -125,165 +132,256 @@ export default function Resources({ profile }: { profile: any }) {
     }
   };
 
-  const getTypeColor = (type: string) => {
-    switch (type) {
-      case 'pdf': return 'bg-red-50 text-red-600';
-      case 'ppt': return 'bg-orange-50 text-orange-600';
-      case 'video': return 'bg-blue-50 text-blue-600';
-      case 'book': return 'bg-green-50 text-green-600';
-      default: return 'bg-gray-50 text-gray-600';
-    }
-  };
-
   return (
-    <div className="space-y-8">
+    <div className="space-y-8 pb-20">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-black text-gray-900">Learning Resources</h1>
-          <p className="text-gray-500 font-medium">
-            Access PPTs, PDFs, videos, and recommended books
-          </p>
+          <h1 className="text-4xl font-black text-gray-900 tracking-tight">Digital Library</h1>
+          <p className="text-gray-500 font-medium">Access recommended books and lecture slides</p>
         </div>
         {(isTeacher || isAdmin) && (
           <button 
             onClick={() => setIsModalOpen(true)}
-            className="px-6 py-3 bg-blue-600 text-white rounded-2xl font-bold hover:bg-blue-700 transition-all shadow-lg shadow-blue-100 flex items-center justify-center gap-2"
+            className="px-8 py-4 bg-blue-600 text-white rounded-2xl font-black hover:bg-blue-700 transition-all shadow-xl shadow-blue-100 flex items-center justify-center gap-2"
           >
             <Upload className="w-5 h-5" />
-            Upload Resource
+            Add New Material
           </button>
         )}
       </div>
 
-      {/* Filters */}
-      <div className="bg-white p-4 rounded-2xl border border-gray-100 shadow-sm flex flex-col md:flex-row gap-4">
+      {/* Tabs */}
+      <div className="flex p-2 bg-white rounded-3xl border border-gray-100 shadow-sm w-fit">
+        <button
+          onClick={() => setActiveTab('book')}
+          className={`px-8 py-3 rounded-2xl font-black text-sm uppercase tracking-widest transition-all ${
+            activeTab === 'book' ? 'bg-blue-600 text-white shadow-lg shadow-blue-100' : 'text-gray-400 hover:bg-gray-50'
+          }`}
+        >
+          Recommended Books
+        </button>
+        <button
+          onClick={() => setActiveTab('slide')}
+          className={`px-8 py-3 rounded-2xl font-black text-sm uppercase tracking-widest transition-all ${
+            activeTab === 'slide' ? 'bg-blue-600 text-white shadow-lg shadow-blue-100' : 'text-gray-400 hover:bg-gray-50'
+          }`}
+        >
+          Lecture Slides
+        </button>
+      </div>
+
+      {/* Search & Subject Filter */}
+      <div className="flex flex-col md:flex-row gap-4">
         <div className="relative flex-1">
-          <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+          <Search className="absolute left-6 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
           <input 
             type="text" 
-            placeholder="Search resources..." 
-            className="w-full pl-12 pr-4 py-3 bg-gray-50 border-none rounded-xl focus:ring-2 focus:ring-blue-100 font-medium"
+            placeholder={`Search ${activeTab === 'book' ? 'books' : 'slides'}...`} 
+            className="w-full pl-16 pr-6 py-5 bg-white border border-gray-100 rounded-3xl focus:ring-2 focus:ring-blue-100 font-bold text-gray-900 shadow-sm"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
           />
         </div>
-        <div className="flex gap-2">
-          {['all', 'pdf', 'ppt', 'video', 'book'].map((type) => (
-            <button
-              key={type}
-              onClick={() => setFilterType(type)}
-              className={`px-4 py-2 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${
-                filterType === type 
-                  ? 'bg-blue-600 text-white shadow-lg shadow-blue-100' 
-                  : 'bg-gray-50 text-gray-400 hover:bg-gray-100'
-              }`}
-            >
-              {type}
-            </button>
-          ))}
-        </div>
+        {activeTab === 'slide' && (
+          <select
+            className="px-6 py-5 bg-white border border-gray-100 rounded-3xl focus:ring-2 focus:ring-blue-100 font-bold text-gray-900 shadow-sm min-w-[200px]"
+            value={selectedSubject}
+            onChange={(e) => setSelectedSubject(e.target.value)}
+          >
+            <option value="all">All Subjects</option>
+            {subjects.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+          </select>
+        )}
       </div>
 
-      {/* Resources Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-8">
-        {loading ? (
-          [1,2,3].map(i => <div key={i} className="h-48 bg-gray-100 rounded-3xl animate-pulse"></div>)
-        ) : filteredResources.length === 0 ? (
-          <div className="col-span-full py-20 text-center text-gray-400 font-medium bg-white rounded-3xl border border-gray-100">
-            No resources found.
-          </div>
-        ) : filteredResources.map((resource) => (
-          <motion.div 
-            key={resource.id}
-            whileHover={{ y: -5 }}
-            className="bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden flex flex-col"
-          >
-            <div className="p-8 flex-1">
-              <div className="flex items-start justify-between mb-6">
-                <div className={`p-4 rounded-2xl ${getTypeColor(resource.type)}`}>
-                  {getIcon(resource.type)}
-                </div>
-                <span className={`px-3 py-1 rounded-lg text-xs font-black uppercase tracking-widest ${getTypeColor(resource.type)}`}>
-                  {resource.type}
-                </span>
-              </div>
-              <h3 className="text-xl font-black text-gray-900 mb-2">{resource.title}</h3>
-              <div className="flex items-center gap-2 text-sm font-bold text-gray-400">
-                <BookOpen className="w-4 h-4" />
-                {courses.find(c => c.id === resource.courseId)?.name || 'Course'}
-              </div>
+      {/* Content Display */}
+      {loading ? (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+          {[1,2,3].map(i => <div key={i} className="h-64 bg-white rounded-[2.5rem] animate-pulse border border-gray-100"></div>)}
+        </div>
+      ) : activeTab === 'book' ? (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-8">
+          {filteredResources.length === 0 ? (
+            <div className="col-span-full py-20 text-center bg-white rounded-[3rem] border border-dashed border-gray-200">
+              <Book className="w-16 h-16 text-gray-200 mx-auto mb-4" />
+              <p className="text-gray-400 font-bold">No books found in the library.</p>
             </div>
-            <div className="p-4 bg-gray-50/50 border-t border-gray-50 flex gap-2">
-              <a 
-                href={resource.fileUrl} 
-                target="_blank" 
-                rel="noopener noreferrer"
-                className="flex-1 py-3 bg-white border border-gray-100 text-blue-600 rounded-xl font-bold text-sm hover:bg-blue-50 transition-all flex items-center justify-center gap-2"
+          ) : (
+            filteredResources.map((book) => (
+              <motion.div 
+                key={book.id}
+                whileHover={{ y: -10 }}
+                className="bg-white rounded-[2.5rem] border border-gray-100 shadow-sm hover:shadow-2xl transition-all overflow-hidden group"
               >
-                <ExternalLink className="w-4 h-4" />
-                Open Resource
-              </a>
-              {(isTeacher || isAdmin) && (
-                <button 
-                  onClick={() => handleDeleteResource(resource.id)}
-                  className="p-3 bg-white border border-gray-100 text-red-500 rounded-xl font-bold text-sm hover:bg-red-50 transition-all"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
-              )}
+                <div className="h-48 bg-gradient-to-br from-blue-50 to-indigo-50 flex items-center justify-center p-8">
+                  <div className="w-20 h-28 bg-white rounded-lg shadow-lg border border-blue-100 flex items-center justify-center transform group-hover:rotate-6 transition-transform">
+                    <Book className="w-10 h-10 text-blue-600" />
+                  </div>
+                </div>
+                <div className="p-8">
+                  <h3 className="text-xl font-black text-gray-900 mb-2 line-clamp-2">{book.title}</h3>
+                  <p className="text-xs text-gray-400 font-bold uppercase tracking-widest mb-6">
+                    {courses.find(c => c.id === book.courseId)?.name || 'General Course'}
+                  </p>
+                  <div className="flex gap-3">
+                    <button 
+                      onClick={() => window.open(book.fileUrl, '_blank')}
+                      className="flex-1 py-3 bg-blue-600 text-white rounded-xl font-black text-xs uppercase tracking-widest hover:bg-blue-700 transition-all flex items-center justify-center gap-2"
+                    >
+                      <ExternalLink className="w-4 h-4" />
+                      Read
+                    </button>
+                    <a 
+                      href={book.fileUrl} 
+                      download={book.title}
+                      className="p-3 bg-gray-50 text-gray-600 rounded-xl hover:bg-gray-100 transition-all"
+                    >
+                      <Upload className="w-5 h-5 rotate-180" />
+                    </a>
+                    {(isAdmin || isTeacher) && (
+                      <button 
+                        onClick={() => handleDeleteResource(book.id)}
+                        className="p-3 text-red-400 hover:bg-red-50 rounded-xl transition-all"
+                      >
+                        <Trash2 className="w-5 h-5" />
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </motion.div>
+            ))
+          )}
+        </div>
+      ) : (
+        <div className="space-y-12">
+          {Object.keys(groupedSlides).length === 0 ? (
+            <div className="py-20 text-center bg-white rounded-[3rem] border border-dashed border-gray-200">
+              <FileText className="w-16 h-16 text-gray-200 mx-auto mb-4" />
+              <p className="text-gray-400 font-bold">No slides uploaded yet.</p>
             </div>
-          </motion.div>
-        ))}
-      </div>
+          ) : (
+            Object.entries(groupedSlides).map(([subjectName, chapters]: any) => (
+              <div key={subjectName} className="space-y-6">
+                <div className="flex items-center gap-4">
+                  <div className="h-px flex-1 bg-gray-200"></div>
+                  <h2 className="text-sm font-black text-gray-400 uppercase tracking-[0.3em]">{subjectName}</h2>
+                  <div className="h-px flex-1 bg-gray-200"></div>
+                </div>
+                
+                <div className="grid grid-cols-1 gap-8">
+                  {Object.entries(chapters).map(([chapter, slides]: any) => (
+                    <div key={chapter} className="bg-white p-8 rounded-[3rem] border border-gray-100 shadow-sm">
+                      <h3 className="text-xl font-black text-gray-900 mb-6 flex items-center gap-3">
+                        <div className="w-2 h-8 bg-blue-600 rounded-full"></div>
+                        {chapter}
+                      </h3>
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                        {slides.map((slide: any) => (
+                          <motion.div 
+                            key={slide.id}
+                            whileHover={{ scale: 1.02 }}
+                            className="p-6 bg-gray-50 rounded-3xl border border-gray-100 flex items-center justify-between group"
+                          >
+                            <div className="flex items-center gap-4">
+                              <div className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center text-blue-600 shadow-sm">
+                                {slide.type === 'ppt' ? <BookOpen className="w-6 h-6" /> : <FileText className="w-6 h-6" />}
+                              </div>
+                              <div>
+                                <h4 className="font-bold text-gray-900">{slide.title}</h4>
+                                <p className="text-[10px] text-gray-400 font-black uppercase tracking-widest">{slide.type}</p>
+                              </div>
+                            </div>
+                            <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                              <button 
+                                onClick={() => window.open(slide.fileUrl, '_blank')}
+                                className="p-2 bg-white text-blue-600 rounded-xl shadow-sm hover:bg-blue-600 hover:text-white transition-all"
+                              >
+                                <ExternalLink className="w-4 h-4" />
+                              </button>
+                              <a 
+                                href={slide.fileUrl} 
+                                download={slide.title}
+                                className="p-2 bg-white text-gray-600 rounded-xl shadow-sm hover:bg-gray-100 transition-all"
+                              >
+                                <Upload className="w-4 h-4 rotate-180" />
+                              </a>
+                              {(isAdmin || isTeacher) && (
+                                <button 
+                                  onClick={() => handleDeleteResource(slide.id)}
+                                  className="p-2 bg-white text-red-500 rounded-xl shadow-sm hover:bg-red-50 transition-all"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              )}
+                            </div>
+                          </motion.div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      )}
 
       {/* Upload Modal */}
       <AnimatePresence>
         {isModalOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm overflow-y-auto">
             <motion.div 
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-              className="bg-white w-full max-w-lg rounded-3xl shadow-2xl overflow-hidden"
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="bg-white w-full max-w-2xl rounded-[3rem] shadow-2xl overflow-hidden my-8"
             >
-              <div className="p-8 border-b border-gray-100 flex items-center justify-between">
-                <h2 className="text-2xl font-black text-gray-900">Upload Resource</h2>
-                <button onClick={() => setIsModalOpen(false)} className="p-2 hover:bg-gray-100 rounded-xl text-gray-400">
-                  <Plus className="w-6 h-6 rotate-45" />
+              <div className="p-10 border-b border-gray-100 flex items-center justify-between sticky top-0 bg-white z-10">
+                <h2 className="text-3xl font-black text-gray-900 tracking-tight">Add Learning Material</h2>
+                <button onClick={() => setIsModalOpen(false)} className="p-3 hover:bg-gray-100 rounded-2xl text-gray-400">
+                  <Plus className="w-8 h-8 rotate-45" />
                 </button>
               </div>
-              <form onSubmit={handleSaveResource} className="p-8 space-y-6">
-                <div>
-                  <label className="block text-sm font-black text-gray-400 uppercase tracking-widest mb-2">Title</label>
-                  <input 
-                    required
-                    type="text" 
-                    className="w-full px-5 py-4 bg-gray-50 border-none rounded-2xl focus:ring-2 focus:ring-blue-100 font-bold text-gray-900"
-                    placeholder="Lecture 1: Introduction"
-                    value={formData.title}
-                    onChange={(e) => setFormData({...formData, title: e.target.value})}
-                  />
+              <form onSubmit={handleSaveResource} className="p-10 space-y-8">
+                <div className="grid grid-cols-2 gap-4 p-2 bg-gray-50 rounded-2xl">
+                  <button
+                    type="button"
+                    onClick={() => setFormData({...formData, category: 'book'})}
+                    className={`py-3 rounded-xl font-black text-xs uppercase tracking-widest transition-all ${
+                      formData.category === 'book' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-400'
+                    }`}
+                  >
+                    Recommended Book
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setFormData({...formData, category: 'slide'})}
+                    className={`py-3 rounded-xl font-black text-xs uppercase tracking-widest transition-all ${
+                      formData.category === 'slide' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-400'
+                    }`}
+                  >
+                    Lecture Slide
+                  </button>
                 </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-black text-gray-400 uppercase tracking-widest mb-2">Type</label>
-                    <select 
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className="md:col-span-2">
+                    <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Title</label>
+                    <input 
                       required
-                      className="w-full px-5 py-4 bg-gray-50 border-none rounded-2xl focus:ring-2 focus:ring-blue-100 font-bold text-gray-900"
-                      value={formData.type}
-                      onChange={(e) => setFormData({...formData, type: e.target.value as any})}
-                    >
-                      <option value="pdf">PDF Document</option>
-                      <option value="ppt">PowerPoint</option>
-                      <option value="video">Video Link</option>
-                      <option value="book">Recommended Book</option>
-                    </select>
+                      type="text" 
+                      className="w-full px-6 py-4 bg-gray-50 border-none rounded-2xl focus:ring-2 focus:ring-blue-100 font-bold text-gray-900"
+                      placeholder="e.g. Anatomy & Physiology 10th Ed"
+                      value={formData.title}
+                      onChange={(e) => setFormData({...formData, title: e.target.value})}
+                    />
                   </div>
+                  
                   <div>
-                    <label className="block text-sm font-black text-gray-400 uppercase tracking-widest mb-2">Course</label>
+                    <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Course</label>
                     <select 
                       required
-                      className="w-full px-5 py-4 bg-gray-50 border-none rounded-2xl focus:ring-2 focus:ring-blue-100 font-bold text-gray-900"
+                      className="w-full px-6 py-4 bg-gray-50 border-none rounded-2xl focus:ring-2 focus:ring-blue-100 font-bold text-gray-900"
                       value={formData.courseId}
                       onChange={(e) => setFormData({...formData, courseId: e.target.value})}
                     >
@@ -291,37 +389,81 @@ export default function Resources({ profile }: { profile: any }) {
                       {courses.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                     </select>
                   </div>
-                </div>
-                <div>
-                  <label className="block text-sm font-black text-gray-400 uppercase tracking-widest mb-2">Upload File (PDF, PPT, Image)</label>
-                  <div className="relative">
-                    <input 
-                      type="file" 
-                      accept=".pdf,.ppt,.pptx,.doc,.docx,image/*"
-                      onChange={handleFileChange}
-                      className="w-full px-5 py-4 bg-gray-50 border-none rounded-2xl focus:ring-2 focus:ring-blue-100 font-bold text-gray-900 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-black file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
-                    />
-                    {isUploading && (
-                      <div className="absolute right-4 top-1/2 -translate-y-1/2">
-                        <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-600"></div>
-                      </div>
-                    )}
+
+                  <div>
+                    <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Subject</label>
+                    <select 
+                      required
+                      className="w-full px-6 py-4 bg-gray-50 border-none rounded-2xl focus:ring-2 focus:ring-blue-100 font-bold text-gray-900"
+                      value={formData.subjectId}
+                      onChange={(e) => setFormData({...formData, subjectId: e.target.value})}
+                    >
+                      <option value="">Select Subject</option>
+                      {subjects.filter(s => s.courseId === formData.courseId).map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                    </select>
                   </div>
-                  <p className="mt-2 text-[10px] text-gray-400 font-medium">Or paste a direct link below</p>
+
+                  {formData.category === 'slide' && (
+                    <div className="md:col-span-2">
+                      <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Chapter Name</label>
+                      <input 
+                        required
+                        type="text" 
+                        className="w-full px-6 py-4 bg-gray-50 border-none rounded-2xl focus:ring-2 focus:ring-blue-100 font-bold text-gray-900"
+                        placeholder="e.g. Chapter 1: The Skeletal System"
+                        value={formData.chapter}
+                        onChange={(e) => setFormData({...formData, chapter: e.target.value})}
+                      />
+                    </div>
+                  )}
+
+                  <div>
+                    <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">File Type</label>
+                    <select 
+                      required
+                      className="w-full px-6 py-4 bg-gray-50 border-none rounded-2xl focus:ring-2 focus:ring-blue-100 font-bold text-gray-900"
+                      value={formData.type}
+                      onChange={(e) => setFormData({...formData, type: e.target.value as any})}
+                    >
+                      <option value="pdf">PDF Document</option>
+                      <option value="ppt">PowerPoint</option>
+                      <option value="video">Video Link</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Upload File</label>
+                    <div className="relative">
+                      <input 
+                        type="file" 
+                        accept=".pdf,.ppt,.pptx,.doc,.docx,image/*"
+                        onChange={handleFileChange}
+                        className="w-full px-6 py-4 bg-gray-50 border-none rounded-2xl focus:ring-2 focus:ring-blue-100 font-bold text-gray-900 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-[10px] file:font-black file:bg-blue-600 file:text-white hover:file:bg-blue-700"
+                      />
+                      {isUploading && (
+                        <div className="absolute right-4 top-1/2 -translate-y-1/2">
+                          <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-600"></div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
                 </div>
-                <div>
-                  <label className="block text-sm font-black text-gray-400 uppercase tracking-widest mb-2">File/Video URL</label>
-                  <input 
-                    type="url" 
-                    className="w-full px-5 py-4 bg-gray-50 border-none rounded-2xl focus:ring-2 focus:ring-blue-100 font-bold text-gray-900"
-                    placeholder="https://..."
-                    value={formData.fileUrl}
-                    onChange={(e) => setFormData({...formData, fileUrl: e.target.value})}
-                  />
+
+                <div className="pt-4 flex gap-4">
+                  <button 
+                    type="button"
+                    onClick={() => setIsModalOpen(false)}
+                    className="flex-1 py-5 bg-gray-50 text-gray-500 rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-gray-100 transition-all"
+                  >
+                    Cancel
+                  </button>
+                  <button 
+                    type="submit" 
+                    className="flex-[2] py-5 bg-blue-600 text-white rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-blue-700 transition-all shadow-xl shadow-blue-100"
+                  >
+                    Save to Library
+                  </button>
                 </div>
-                <button type="submit" className="w-full py-4 bg-blue-600 text-white rounded-2xl font-bold hover:bg-blue-700 transition-all shadow-lg shadow-blue-100">
-                  Upload Now
-                </button>
               </form>
             </motion.div>
           </div>
