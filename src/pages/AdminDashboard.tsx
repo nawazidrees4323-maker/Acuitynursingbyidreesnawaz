@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { db, collection, getDocs, query, where, Timestamp } from '../lib/firebase';
-import { Users, BookOpen, Calendar, CreditCard, TrendingUp, UserCheck, UserPlus, BookCopy } from 'lucide-react';
+import { Users, BookOpen, Calendar, CreditCard, TrendingUp, UserCheck, UserPlus, BookCopy, ChevronRight } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, PieChart, Pie } from 'recharts';
 import { motion } from 'motion/react';
 import ProfileSection from '../components/ProfileSection';
@@ -15,6 +15,7 @@ export default function AdminDashboard({ profile }: { profile: any }) {
     avgAttendance: 0
   });
 
+  const [pendingUsers, setPendingUsers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -31,6 +32,9 @@ export default function AdminDashboard({ profile }: { profile: any }) {
 
         const students = users.filter(u => u.role === 'student');
         const teachers = users.filter(u => u.role === 'teacher');
+        const pending = users.filter(u => u.status === 'pending');
+        
+        setPendingUsers(pending);
         
         const revenue = fees.filter(f => f.status === 'paid').reduce((acc, curr) => acc + (curr.amount || 0), 0);
         
@@ -82,6 +86,31 @@ export default function AdminDashboard({ profile }: { profile: any }) {
     <div className="space-y-8">
       <ProfileSection profile={profile} />
       
+      {pendingUsers.length > 0 && (
+        <motion.div 
+          initial={{ opacity: 0, y: -20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="bg-amber-50 border border-amber-200 p-6 rounded-[2rem] flex items-center justify-between gap-6 shadow-xl shadow-amber-100/20"
+        >
+          <div className="flex items-center gap-4">
+            <div className="w-14 h-14 bg-amber-100 rounded-2xl flex items-center justify-center text-amber-600 shadow-inner">
+              <UserPlus className="w-7 h-7" />
+            </div>
+            <div>
+              <h3 className="text-lg font-black text-amber-900">Pending Approvals</h3>
+              <p className="text-amber-700 font-medium">There are {pendingUsers.length} new users waiting for your approval.</p>
+            </div>
+          </div>
+          <button 
+            onClick={() => window.location.href = '/user-management'}
+            className="px-8 py-3 bg-amber-600 text-white rounded-2xl font-black hover:bg-amber-700 transition-all shadow-lg shadow-amber-200 flex items-center gap-2 whitespace-nowrap"
+          >
+            Review Requests
+            <ChevronRight className="w-5 h-5" />
+          </button>
+        </motion.div>
+      )}
+
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-black text-gray-900">Admin Dashboard</h1>

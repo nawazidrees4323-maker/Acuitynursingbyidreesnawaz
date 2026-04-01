@@ -8,6 +8,7 @@ interface Question {
   question: string;
   options: string[];
   correctAnswer: number;
+  type: 'mcq' | 'seq';
 }
 
 interface Quiz {
@@ -32,6 +33,11 @@ export default function Quizzes({ profile }: { profile: UserProfile }) {
   const [allResults, setAllResults] = useState<any[]>([]);
   const [showAnalytics, setShowAnalytics] = useState(false);
   const [showLeaderboard, setShowLeaderboard] = useState(false);
+  const [markingResult, setMarkingResult] = useState<any>(null);
+  const [seqMarks, setSeqMarks] = useState<number[]>([]);
+
+  const isAdmin = profile.role === 'admin';
+  const isTeacher = profile.role === 'teacher';
 
   // New Quiz Form State
   const [isBulkMode, setIsBulkMode] = useState(false);
@@ -41,7 +47,7 @@ export default function Quizzes({ profile }: { profile: UserProfile }) {
     courseId: '',
     subjectId: '',
     timeLimit: 30,
-    questions: [{ question: '', options: ['', '', '', ''], correctAnswer: 0 }]
+    questions: [{ question: '', options: ['', '', '', ''], correctAnswer: 0, type: 'mcq' as 'mcq' | 'seq' }]
   });
 
   const parseBulkQuestions = () => {
@@ -76,7 +82,8 @@ export default function Quizzes({ profile }: { profile: UserProfile }) {
         questions.push({
           question: questionText,
           options: options.slice(0, 4),
-          correctAnswer: correctAnswer >= 0 && correctAnswer < options.length ? correctAnswer : 0
+          correctAnswer: correctAnswer >= 0 && correctAnswer < options.length ? correctAnswer : 0,
+          type: 'mcq'
         });
       }
     });
@@ -178,7 +185,7 @@ export default function Quizzes({ profile }: { profile: UserProfile }) {
   const addQuestion = () => {
     setNewQuiz({
       ...newQuiz,
-      questions: [...newQuiz.questions, { question: '', options: ['', '', '', ''], correctAnswer: 0 }]
+      questions: [...newQuiz.questions, { question: '', options: ['', '', '', ''], correctAnswer: 0, type: 'mcq' }]
     });
   };
 
@@ -196,13 +203,13 @@ export default function Quizzes({ profile }: { profile: UserProfile }) {
 
   // Quiz Player State
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
-  const [answers, setAnswers] = useState<number[]>([]);
+  const [answers, setAnswers] = useState<(number | string)[]>([]);
   const [timeLeft, setTimeLeft] = useState(0);
 
   const startQuiz = (quiz: Quiz) => {
     setActiveQuiz(quiz);
     setCurrentQuestionIndex(0);
-    setAnswers(new Array(quiz.questions.length).fill(-1));
+    setAnswers(quiz.questions.map(q => q.type === 'mcq' ? -1 : ''));
     setTimeLeft(quiz.timeLimit * 60);
     setQuizResults(null);
   };
@@ -219,8 +226,16 @@ export default function Quizzes({ profile }: { profile: UserProfile }) {
   const submitQuiz = async () => {
     if (!activeQuiz) return;
     let score = 0;
+    let mcqCount = 0;
+    let hasSeq = false;
+
     activeQuiz.questions.forEach((q, i) => {
-      if (answers[i] === q.correctAnswer) score++;
+      if (q.type === 'mcq') {
+        mcqCount++;
+        if (answers[i] === q.correctAnswer) score++;
+      } else {
+        hasSeq = true;
+      }
     });
     
     const resultData = {
@@ -230,10 +245,13 @@ export default function Quizzes({ profile }: { profile: UserProfile }) {
       studentName: profile.name,
       score,
       totalQuestions: activeQuiz.questions.length,
-      percentage: (score / activeQuiz.questions.length) * 100,
+      mcqCount,
+      percentage: mcqCount > 0 ? (score / mcqCount) * 100 : 0,
       completedAt: Timestamp.now(),
-      userAnswers: answers, // Store user answers for review
-      questions: activeQuiz.questions // Store questions for review
+      userAnswers: answers,
+      questions: activeQuiz.questions,
+      status: hasSeq ? 'pending_marking' : 'marked',
+      seqMarks: hasSeq ? new Array(activeQuiz.questions.length).fill(0) : []
     };
 
     try {
@@ -245,6 +263,39 @@ export default function Quizzes({ profile }: { profile: UserProfile }) {
     }
   };
 
+  const handleMarkingSubmit = async () => {
+    if (!markingResult) return;
+    
+    const totalSeqMarks = seqMarks.reduce((acc, curr) => acc + curr, 0);
+    const finalScore = markingResult.score + totalSeqMarks;
+    const finalPercentage = (finalScore / markingResult.totalQuestions) * 100;
+
+    try {
+      await setDoc(doc(db, 'quiz_results', markingResult.id), {
+        score: finalScore,
+        percentage: finalPercentage,
+        seqMarks,
+        status: 'marked'
+      }, { merge: true });
+
+      // Send notification to student
+      const notifId = Math.random().toString(36).substr(2, 9);
+      await setDoc(doc(db, 'notifications', notifId), {
+        id: notifId,
+        recipientId: markingResult.studentId,
+        title: 'Quiz Marked',
+        message: `Your quiz "${markingResult.quizTitle}" has been marked. Final score: ${finalScore}/${markingResult.totalQuestions}`,
+        createdAt: Timestamp.now(),
+        read: false
+      });
+
+      setMarkingResult(null);
+      alert('Quiz marked successfully!');
+    } catch (error) {
+      console.error('Error updating marks:', error);
+      alert('Failed to update marks.');
+    }
+  };
   const getTopScorers = () => {
     const studentScores: { [key: string]: { name: string, totalScore: number, quizzesTaken: number } } = {};
     
@@ -407,7 +458,9 @@ export default function Quizzes({ profile }: { profile: UserProfile }) {
                   <th className="px-8 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest">Quiz</th>
                   <th className="px-8 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest">Score</th>
                   <th className="px-8 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest">Percentage</th>
+                  <th className="px-8 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest">Status</th>
                   <th className="px-8 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest">Date</th>
+                  <th className="px-8 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest text-right">Action</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
@@ -433,8 +486,28 @@ export default function Quizzes({ profile }: { profile: UserProfile }) {
                           {Math.round(res.percentage)}%
                         </span>
                       </td>
+                      <td className="px-8 py-5">
+                        <span className={`px-3 py-1 rounded-full text-xs font-black ${
+                          res.status === 'marked' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'
+                        }`}>
+                          {res.status === 'marked' ? 'Marked' : 'Pending'}
+                        </span>
+                      </td>
                       <td className="px-8 py-5 text-sm text-gray-500 font-medium">
                         {res.completedAt?.toDate().toLocaleDateString()}
+                      </td>
+                      <td className="px-8 py-5 text-right">
+                        {res.status === 'pending_marking' && (isAdmin || isTeacher) && (
+                          <button 
+                            onClick={() => {
+                              setMarkingResult(res);
+                              setSeqMarks(res.seqMarks || new Array(res.questions.length).fill(0));
+                            }}
+                            className="px-4 py-2 bg-blue-600 text-white rounded-xl text-xs font-black hover:bg-blue-700 transition-all"
+                          >
+                            Mark SEQs
+                          </button>
+                        )}
                       </td>
                     </tr>
                   ))
@@ -464,30 +537,46 @@ export default function Quizzes({ profile }: { profile: UserProfile }) {
                 <h3 className="text-xl font-bold text-gray-800 mb-8 leading-relaxed">
                   {activeQuiz.questions[currentQuestionIndex].question}
                 </h3>
-                <div className="grid gap-4">
-                  {activeQuiz.questions[currentQuestionIndex].options.map((option, idx) => (
-                    <button
-                      key={idx}
-                      onClick={() => {
+                {activeQuiz.questions[currentQuestionIndex].type === 'mcq' ? (
+                  <div className="grid gap-4">
+                    {activeQuiz.questions[currentQuestionIndex].options.map((option, idx) => (
+                      <button
+                        key={idx}
+                        onClick={() => {
+                          const newAnswers = [...answers];
+                          newAnswers[currentQuestionIndex] = idx;
+                          setAnswers(newAnswers);
+                        }}
+                        className={`w-full text-left p-6 rounded-2xl font-bold transition-all border-2 flex items-center gap-4 ${
+                          answers[currentQuestionIndex] === idx 
+                            ? 'bg-blue-50 border-blue-600 text-blue-700 shadow-md' 
+                            : 'bg-gray-50 border-transparent text-gray-600 hover:bg-gray-100'
+                        }`}
+                      >
+                        <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-sm ${
+                          answers[currentQuestionIndex] === idx ? 'bg-blue-600 text-white' : 'bg-white text-gray-400'
+                        }`}>
+                          {String.fromCharCode(65 + idx)}
+                        </div>
+                        {option}
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-2">Your Answer</label>
+                    <textarea 
+                      className="w-full h-48 px-6 py-5 bg-gray-50 border-none rounded-[2rem] focus:ring-2 focus:ring-blue-100 font-medium text-gray-700"
+                      placeholder="Type your answer here..."
+                      value={answers[currentQuestionIndex] as string}
+                      onChange={(e) => {
                         const newAnswers = [...answers];
-                        newAnswers[currentQuestionIndex] = idx;
+                        newAnswers[currentQuestionIndex] = e.target.value;
                         setAnswers(newAnswers);
                       }}
-                      className={`w-full text-left p-6 rounded-2xl font-bold transition-all border-2 flex items-center gap-4 ${
-                        answers[currentQuestionIndex] === idx 
-                          ? 'bg-blue-50 border-blue-600 text-blue-700 shadow-md' 
-                          : 'bg-gray-50 border-transparent text-gray-600 hover:bg-gray-100'
-                      }`}
-                    >
-                      <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-sm ${
-                        answers[currentQuestionIndex] === idx ? 'bg-blue-600 text-white' : 'bg-white text-gray-400'
-                      }`}>
-                        {String.fromCharCode(65 + idx)}
-                      </div>
-                      {option}
-                    </button>
-                  ))}
-                </div>
+                    />
+                  </div>
+                )}
               </div>
 
               <div className="flex items-center justify-between pt-8 border-t border-gray-100">
@@ -560,32 +649,47 @@ export default function Quizzes({ profile }: { profile: UserProfile }) {
                         <h4 className="text-lg font-bold text-gray-800 leading-relaxed">{q.question}</h4>
                       </div>
 
-                      <div className="grid gap-3 ml-12">
-                        {q.options.map((option: string, optIdx: number) => {
-                          const isUserChoice = userAnswer === optIdx;
-                          const isCorrectChoice = q.correctAnswer === optIdx;
+                        {q.type === 'mcq' ? (
+                          <div className="grid gap-3 ml-12">
+                            {q.options.map((option: string, optIdx: number) => {
+                              const isUserChoice = userAnswer === optIdx;
+                              const isCorrectChoice = q.correctAnswer === optIdx;
 
-                          let statusClass = 'bg-white text-gray-500 border-gray-100';
-                          if (isCorrectChoice) statusClass = 'bg-green-100 text-green-700 border-green-200 ring-2 ring-green-500/20';
-                          if (isUserChoice && !isCorrect) statusClass = 'bg-red-100 text-red-700 border-red-200 ring-2 ring-red-500/20';
+                              let statusClass = 'bg-white text-gray-500 border-gray-100';
+                              if (isCorrectChoice) statusClass = 'bg-green-100 text-green-700 border-green-200 ring-2 ring-green-500/20';
+                              if (isUserChoice && !isCorrect) statusClass = 'bg-red-100 text-red-700 border-red-200 ring-2 ring-red-500/20';
 
-                          return (
-                            <div 
-                              key={optIdx} 
-                              className={`p-4 rounded-xl border text-sm font-bold flex items-center justify-between ${statusClass}`}
-                            >
-                              <div className="flex items-center gap-3">
-                                <span className="opacity-50">{String.fromCharCode(65 + optIdx)})</span>
-                                {option}
-                              </div>
-                              {isCorrectChoice && <CheckCircle2 className="w-4 h-4 text-green-600" />}
-                              {isUserChoice && !isCorrect && <XCircle className="w-4 h-4 text-red-600" />}
+                              return (
+                                <div 
+                                  key={optIdx} 
+                                  className={`p-4 rounded-xl border text-sm font-bold flex items-center justify-between ${statusClass}`}
+                                >
+                                  <div className="flex items-center gap-3">
+                                    <span className="opacity-50">{String.fromCharCode(65 + optIdx)})</span>
+                                    {option}
+                                  </div>
+                                  {isCorrectChoice && <CheckCircle2 className="w-4 h-4 text-green-600" />}
+                                  {isUserChoice && !isCorrect && <XCircle className="w-4 h-4 text-red-600" />}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        ) : (
+                          <div className="ml-12 space-y-4">
+                            <div className="p-6 bg-white rounded-2xl border border-gray-100">
+                              <p className="text-xs font-black text-gray-400 uppercase tracking-widest mb-2">Your Answer</p>
+                              <p className="text-gray-700 font-medium whitespace-pre-wrap">{userAnswer || 'No answer provided.'}</p>
                             </div>
-                          );
-                        })}
-                      </div>
-                      
-                      {!isCorrect && (
+                            <div className="flex items-center justify-between p-4 bg-blue-50 rounded-2xl border border-blue-100">
+                              <span className="text-sm font-bold text-blue-700">Marks Assigned:</span>
+                              <span className="text-lg font-black text-blue-700">
+                                {quizResults.status === 'pending_marking' ? 'Pending' : `${quizResults.seqMarks?.[idx] || 0} Marks`}
+                              </span>
+                            </div>
+                          </div>
+                        )}
+                        
+                        {q.type === 'mcq' && !isCorrect && (
                         <div className="mt-6 ml-12 p-4 bg-blue-50 rounded-2xl border border-blue-100">
                           <p className="text-xs font-black text-blue-700 uppercase tracking-widest mb-1">Correct Answer</p>
                           <p className="text-sm font-bold text-blue-900">
@@ -667,7 +771,99 @@ export default function Quizzes({ profile }: { profile: UserProfile }) {
         </div>
       )}
 
-      {/* Create Quiz Modal */}
+      {/* Marking Modal */}
+      <AnimatePresence>
+        {markingResult && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm overflow-y-auto">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="bg-white w-full max-w-4xl rounded-[2.5rem] shadow-2xl overflow-hidden my-8"
+            >
+              <div className="p-8 border-b border-gray-100 flex items-center justify-between sticky top-0 bg-white z-10">
+                <div>
+                  <h2 className="text-2xl font-black text-gray-900 tracking-tight">Mark SEQs</h2>
+                  <p className="text-sm text-gray-500 font-medium">{markingResult.studentName} - {markingResult.quizTitle}</p>
+                </div>
+                <button onClick={() => setMarkingResult(null)} className="p-2 hover:bg-gray-100 rounded-xl text-gray-400">
+                  <XCircle className="w-6 h-6" />
+                </button>
+              </div>
+              
+              <div className="p-8 space-y-8 max-h-[70vh] overflow-y-auto custom-scrollbar">
+                {markingResult.questions.map((q: any, idx: number) => (
+                  <div key={idx} className="p-6 bg-gray-50 rounded-[2rem] border border-gray-100 space-y-4">
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 mb-2">
+                          <span className="px-2 py-1 bg-blue-600 text-white text-[10px] font-black rounded-lg uppercase tracking-widest">
+                            {q.type}
+                          </span>
+                          <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest">Question {idx + 1}</label>
+                        </div>
+                        <p className="text-lg font-bold text-gray-900 mb-4">{q.question}</p>
+                        
+                        {q.type === 'mcq' ? (
+                          <div className="p-4 bg-white rounded-xl border border-gray-100">
+                            <p className="text-sm font-bold text-gray-600">
+                              Student Answer: {String.fromCharCode(65 + markingResult.userAnswers[idx])}) {q.options[markingResult.userAnswers[idx]]}
+                            </p>
+                            <p className={`text-xs font-black mt-2 uppercase tracking-widest ${
+                              markingResult.userAnswers[idx] === q.correctAnswer ? 'text-green-600' : 'text-red-600'
+                            }`}>
+                              {markingResult.userAnswers[idx] === q.correctAnswer ? 'Correct (+1)' : 'Incorrect (0)'}
+                            </p>
+                          </div>
+                        ) : (
+                          <div className="space-y-4">
+                            <div className="p-6 bg-white rounded-2xl border border-gray-100">
+                              <p className="text-xs font-black text-gray-400 uppercase tracking-widest mb-2">Student's Answer</p>
+                              <p className="text-gray-700 font-medium whitespace-pre-wrap">{markingResult.userAnswers[idx] || 'No answer provided.'}</p>
+                            </div>
+                            <div>
+                              <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Assign Marks (0-1)</label>
+                              <input 
+                                type="number" 
+                                min="0"
+                                max="1"
+                                step="0.1"
+                                className="w-32 px-4 py-3 bg-white border-none rounded-xl focus:ring-2 focus:ring-blue-100 font-bold text-gray-900"
+                                value={seqMarks[idx]}
+                                onChange={(e) => {
+                                  const updated = [...seqMarks];
+                                  updated[idx] = parseFloat(e.target.value) || 0;
+                                  setSeqMarks(updated);
+                                }}
+                              />
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <div className="p-8 border-t border-gray-100 flex gap-4">
+                <button 
+                  onClick={() => setMarkingResult(null)}
+                  className="flex-1 py-4 bg-gray-50 text-gray-500 rounded-2xl font-bold hover:bg-gray-100 transition-all"
+                >
+                  Cancel
+                </button>
+                <button 
+                  onClick={handleMarkingSubmit}
+                  className="flex-[2] py-4 bg-green-600 text-white rounded-2xl font-black hover:bg-green-700 transition-all shadow-lg shadow-green-100 flex items-center justify-center gap-2"
+                >
+                  <CheckCircle2 className="w-5 h-5" />
+                  Submit Marks
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
       <AnimatePresence>
         {isModalOpen && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm overflow-y-auto">
@@ -789,7 +985,29 @@ export default function Quizzes({ profile }: { profile: UserProfile }) {
                     <div key={qIdx} className="p-6 bg-gray-50 rounded-[2rem] border border-gray-100 space-y-4">
                       <div className="flex items-start justify-between gap-4">
                         <div className="flex-1">
-                          <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Question {qIdx + 1}</label>
+                          <div className="flex items-center justify-between mb-1">
+                            <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest">Question {qIdx + 1}</label>
+                            <div className="flex gap-2">
+                              <button 
+                                type="button"
+                                onClick={() => updateQuestion(qIdx, 'type', 'mcq')}
+                                className={`text-[10px] font-black px-2 py-1 rounded-lg uppercase tracking-widest transition-all ${
+                                  q.type === 'mcq' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-500'
+                                }`}
+                              >
+                                MCQ
+                              </button>
+                              <button 
+                                type="button"
+                                onClick={() => updateQuestion(qIdx, 'type', 'seq')}
+                                className={`text-[10px] font-black px-2 py-1 rounded-lg uppercase tracking-widest transition-all ${
+                                  q.type === 'seq' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-500'
+                                }`}
+                              >
+                                SEQ
+                              </button>
+                            </div>
+                          </div>
                           <input 
                             required
                             type="text" 
@@ -813,27 +1031,33 @@ export default function Quizzes({ profile }: { profile: UserProfile }) {
                         )}
                       </div>
 
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        {q.options.map((opt, oIdx) => (
-                          <div key={oIdx} className="flex items-center gap-3">
-                            <input 
-                              type="radio"
-                              name={`correct-${qIdx}`}
-                              checked={q.correctAnswer === oIdx}
-                              onChange={() => updateQuestion(qIdx, 'correctAnswer', oIdx)}
-                              className="w-4 h-4 text-blue-600"
-                            />
-                            <input 
-                              required
-                              type="text" 
-                              className="flex-1 px-4 py-2.5 bg-white border-none rounded-xl focus:ring-2 focus:ring-blue-100 font-medium text-gray-700"
-                              placeholder={`Option ${String.fromCharCode(65 + oIdx)}`}
-                              value={opt}
-                              onChange={(e) => updateOption(qIdx, oIdx, e.target.value)}
-                            />
-                          </div>
-                        ))}
-                      </div>
+                      {q.type === 'mcq' ? (
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          {q.options.map((opt, oIdx) => (
+                            <div key={oIdx} className="flex items-center gap-3">
+                              <input 
+                                type="radio"
+                                name={`correct-${qIdx}`}
+                                checked={q.correctAnswer === oIdx}
+                                onChange={() => updateQuestion(qIdx, 'correctAnswer', oIdx)}
+                                className="w-4 h-4 text-blue-600"
+                              />
+                              <input 
+                                required
+                                type="text" 
+                                className="flex-1 px-4 py-2.5 bg-white border-none rounded-xl focus:ring-2 focus:ring-blue-100 font-medium text-gray-700"
+                                placeholder={`Option ${String.fromCharCode(65 + oIdx)}`}
+                                value={opt}
+                                onChange={(e) => updateOption(qIdx, oIdx, e.target.value)}
+                              />
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="p-4 bg-blue-50 rounded-xl border border-blue-100">
+                          <p className="text-xs font-bold text-blue-600 italic">This is a Short Essay Question (SEQ). Students will provide a written answer.</p>
+                        </div>
+                      )}
                     </div>
                   ))
                 )}

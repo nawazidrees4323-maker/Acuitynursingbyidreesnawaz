@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, Link, useLocation, Outlet } from 'react-router-dom';
-import { auth, db, onAuthStateChanged, doc, getDoc, setDoc, Timestamp, FirebaseUser, onSnapshot } from './lib/firebase';
+import { auth, db, onAuthStateChanged, doc, getDoc, setDoc, Timestamp, FirebaseUser, onSnapshot, query, collection, where } from './lib/firebase';
 import { 
   Library,
   Info,
@@ -140,7 +140,7 @@ function PendingApproval({ profile }: { profile: UserProfile }) {
 }
 
 // Layout Component
-function Layout({ user, profile }: { user: FirebaseUser, profile: UserProfile }) {
+function Layout({ user, profile, pendingCount }: { user: FirebaseUser, profile: UserProfile, pendingCount: number }) {
   const [isSidebarOpen, setIsSidebarOpen] = useState(window.innerWidth >= 1024);
 
   useEffect(() => {
@@ -246,6 +246,11 @@ function Layout({ user, profile }: { user: FirebaseUser, profile: UserProfile })
             >
               <item.icon className={`w-5 h-5 shrink-0 ${location.pathname === item.path ? 'text-blue-600' : 'text-gray-400 group-hover:text-gray-600'}`} />
               <span className="font-medium">{item.name}</span>
+              {item.name === 'Users' && pendingCount > 0 && (
+                <span className="ml-auto bg-amber-500 text-white text-[10px] font-black px-2 py-0.5 rounded-full shadow-lg shadow-amber-200">
+                  {pendingCount}
+                </span>
+              )}
             </Link>
           ))}
         </nav>
@@ -312,10 +317,12 @@ function Layout({ user, profile }: { user: FirebaseUser, profile: UserProfile })
 export default function App() {
   const [user, setUser] = useState<FirebaseUser | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [pendingCount, setPendingCount] = useState(0);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     let unsubscribeProfile: (() => void) | undefined;
+    let unsubscribePending: (() => void) | undefined;
 
     const unsubscribeAuth = onAuthStateChanged(auth, async (user) => {
       if (user) {
@@ -323,7 +330,16 @@ export default function App() {
         // Use onSnapshot for real-time profile updates (e.g., approval)
         unsubscribeProfile = onSnapshot(doc(db, 'users', user.uid), (docSnap) => {
           if (docSnap.exists()) {
-            setProfile(docSnap.data() as UserProfile);
+            const data = docSnap.data() as UserProfile;
+            setProfile(data);
+            
+            // If admin, listen for pending users
+            if (data.role === 'admin') {
+              const q = query(collection(db, 'users'), where('status', '==', 'pending'));
+              unsubscribePending = onSnapshot(q, (snapshot) => {
+                setPendingCount(snapshot.size);
+              });
+            }
           } else {
             const isAdminEmail = user.email === "nawazidrees4323@gmail.com";
             const newProfile: UserProfile = {
@@ -343,14 +359,17 @@ export default function App() {
       } else {
         setUser(null);
         setProfile(null);
+        setPendingCount(0);
         setLoading(false);
         if (unsubscribeProfile) unsubscribeProfile();
+        if (unsubscribePending) unsubscribePending();
       }
     });
 
     return () => {
       unsubscribeAuth();
       if (unsubscribeProfile) unsubscribeProfile();
+      if (unsubscribePending) unsubscribePending();
     };
   }, []);
 
@@ -371,7 +390,7 @@ export default function App() {
             <Route path="*" element={<Login />} />
           ) : profile ? (
             profile.status === 'approved' ? (
-              <Route path="/" element={<Layout user={user} profile={profile} />}>
+              <Route path="/" element={<Layout user={user} profile={profile} pendingCount={pendingCount} />}>
                 <Route index element={<DashboardRouter profile={profile} />} />
                 <Route path="users" element={profile.role === 'admin' ? <UserManagement /> : <Navigate to="/" />} />
                 <Route path="courses" element={profile.role === 'admin' ? <CourseManagement /> : <Navigate to="/" />} />
