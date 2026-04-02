@@ -42,40 +42,19 @@ export default function Quizzes({ profile }: { profile: UserProfile }) {
   // New Quiz Form State
   const [isBulkMode, setIsBulkMode] = useState(false);
   const [bulkText, setBulkText] = useState('');
-  const [bulkAnswersText, setBulkAnswersText] = useState('');
   const [newQuiz, setNewQuiz] = useState({
     title: '',
     courseId: '',
     subjectId: '',
     timeLimit: 30,
-    questions: [{ question: '', options: ['', '', '', ''], correctAnswer: 0, type: 'mcq' as 'mcq' | 'seq' }]
+    questions: [{ question: '', options: ['', '', '', ''], correctAnswer: -1, type: 'mcq' as 'mcq' | 'seq' }]
   });
 
   const parseBulkQuestions = () => {
     const questions: Question[] = [];
     const blocks = bulkText.split(/\n\s*\n/);
 
-    // Parse Answer Key
-    const answerKey: (number | null)[] = [];
-    if (bulkAnswersText.trim()) {
-      const answerLines = bulkAnswersText.split('\n').map(l => l.trim()).filter(l => l !== '');
-      answerLines.forEach((line, idx) => {
-        const match = line.match(/^(\d+)[.\)]\s*([A-D])/i);
-        if (match) {
-          const qNum = parseInt(match[1]);
-          const letter = match[2].toUpperCase();
-          answerKey[qNum - 1] = letter.charCodeAt(0) - 65;
-        } else {
-          const letterMatch = line.match(/^([A-D])/i);
-          if (letterMatch) {
-            const letter = letterMatch[1].toUpperCase();
-            answerKey[idx] = letter.charCodeAt(0) - 65;
-          }
-        }
-      });
-    }
-
-    blocks.forEach((block, index) => {
+    blocks.forEach((block) => {
       const lines = block.split('\n').map(l => l.trim()).filter(l => l !== '');
       if (lines.length < 2) return;
 
@@ -88,7 +67,7 @@ export default function Quizzes({ profile }: { profile: UserProfile }) {
         if (optionMatch) {
           options.push(optionMatch[2]);
         } else {
-          const answerMatch = line.match(/^(?:Answer|Correct|Ans):\s*([A-D])/i);
+          const answerMatch = line.match(/^(?:Answer|Correct|Ans|Key):\s*([A-D])/i);
           if (answerMatch) {
             const letter = answerMatch[1].toUpperCase();
             correctAnswer = letter.charCodeAt(0) - 65;
@@ -96,19 +75,14 @@ export default function Quizzes({ profile }: { profile: UserProfile }) {
         }
       });
 
-      // Override with answer key if provided for this index
-      if (answerKey[index] !== undefined && answerKey[index] !== null) {
-        correctAnswer = answerKey[index]!;
-      }
-
-      if (options.length >= 2) {
+      if (options.length >= 2 || lines.length > 1) {
         // Fill up to 4 options if less
         while (options.length < 4) options.push('');
         
         questions.push({
           question: questionText,
           options: options.slice(0, 4),
-          correctAnswer: correctAnswer >= 0 && correctAnswer < options.length ? correctAnswer : 0,
+          correctAnswer: correctAnswer >= 0 && correctAnswer < 4 ? correctAnswer : -1,
           type: 'mcq'
         });
       }
@@ -118,7 +92,6 @@ export default function Quizzes({ profile }: { profile: UserProfile }) {
       setNewQuiz({ ...newQuiz, questions });
       setIsBulkMode(false);
       setBulkText('');
-      setBulkAnswersText('');
     } else {
       alert('Could not parse any questions. Please check the format.');
     }
@@ -177,6 +150,20 @@ export default function Quizzes({ profile }: { profile: UserProfile }) {
 
   const handleCreateQuiz = async (e: React.FormEvent) => {
     e.preventDefault();
+    
+    // Validation
+    const invalidMcq = newQuiz.questions.find(q => q.type === 'mcq' && q.correctAnswer === -1);
+    if (invalidMcq) {
+      alert(`Please select a correct answer for question: "${invalidMcq.question.substring(0, 30)}..."`);
+      return;
+    }
+
+    const emptyQuestion = newQuiz.questions.find(q => q.question.trim() === '');
+    if (emptyQuestion) {
+      alert('One or more questions are empty. Please fill them or remove them.');
+      return;
+    }
+
     try {
       const quizData = {
         ...newQuiz,
@@ -190,7 +177,7 @@ export default function Quizzes({ profile }: { profile: UserProfile }) {
         courseId: '',
         subjectId: '',
         timeLimit: 30,
-        questions: [{ question: '', options: ['', '', '', ''], correctAnswer: 0, type: 'mcq' }]
+        questions: [{ question: '', options: ['', '', '', ''], correctAnswer: -1, type: 'mcq' }]
       });
       fetchQuizzes();
     } catch (error) {
@@ -215,7 +202,7 @@ export default function Quizzes({ profile }: { profile: UserProfile }) {
       questions: [...newQuiz.questions, { 
         question: '', 
         options: type === 'mcq' ? ['', '', '', ''] : [], 
-        correctAnswer: 0, 
+        correctAnswer: -1, 
         type 
       }]
     });
@@ -1005,44 +992,26 @@ export default function Quizzes({ profile }: { profile: UserProfile }) {
                     <div className="space-y-6">
                       <div className="bg-blue-50 p-6 rounded-[2rem] border border-blue-100">
                         <h4 className="text-sm font-black text-blue-800 mb-2 uppercase tracking-widest">Bulk Import Guide</h4>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                          <p className="text-[10px] text-blue-600 leading-relaxed font-medium">
-                            <span className="font-black">Questions & Options:</span><br/>
-                            1. What is the capital of France?<br/>
-                            A) London<br/>
-                            B) Paris<br/>
-                            C) Berlin<br/>
-                            D) Rome
-                          </p>
-                          <p className="text-[10px] text-blue-600 leading-relaxed font-medium">
-                            <span className="font-black">Answer Key (Optional):</span><br/>
-                            1. B<br/>
-                            2. A<br/>
-                            3. C<br/>
-                            (Or just paste a list: B, A, C)
-                          </p>
+                        <p className="text-xs text-blue-600 leading-relaxed font-medium">
+                          Paste your questions and options below. After parsing, you will be able to select the correct answer for each MCQ manually in the next step.
+                        </p>
+                        <div className="mt-4 p-4 bg-white/50 rounded-xl text-[10px] font-mono text-blue-700">
+                          1. What is the capital of France?<br/>
+                          A) London<br/>
+                          B) Paris<br/>
+                          C) Berlin<br/>
+                          D) Rome
                         </div>
                       </div>
 
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        <div className="space-y-2">
-                          <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest">Questions & Options</label>
-                          <textarea 
-                            className="w-full h-80 px-6 py-5 bg-gray-50 border-none rounded-[2rem] focus:ring-2 focus:ring-blue-100 font-medium text-gray-700"
-                            placeholder="Paste questions and options here..."
-                            value={bulkText}
-                            onChange={(e) => setBulkText(e.target.value)}
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest">Answer Key (Optional)</label>
-                          <textarea 
-                            className="w-full h-80 px-6 py-5 bg-gray-50 border-none rounded-[2rem] focus:ring-2 focus:ring-blue-100 font-medium text-gray-700"
-                            placeholder="Paste answer key here (e.g., 1. A, 2. B or just A, B, C)..."
-                            value={bulkAnswersText}
-                            onChange={(e) => setBulkAnswersText(e.target.value)}
-                          />
-                        </div>
+                      <div className="space-y-2">
+                        <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest">Paste Questions & Options</label>
+                        <textarea 
+                          className="w-full h-96 px-6 py-5 bg-gray-50 border-none rounded-[2rem] focus:ring-2 focus:ring-blue-100 font-medium text-gray-700"
+                          placeholder="Paste your questions and options here..."
+                          value={bulkText}
+                          onChange={(e) => setBulkText(e.target.value)}
+                        />
                       </div>
 
                       <button 
@@ -1050,104 +1019,108 @@ export default function Quizzes({ profile }: { profile: UserProfile }) {
                         onClick={parseBulkQuestions}
                         className="w-full py-4 bg-blue-600 text-white rounded-2xl font-black hover:bg-blue-700 transition-all shadow-lg shadow-blue-100"
                       >
-                        Parse & Arrange Questions
+                        Parse Questions & Arrange Answers
                       </button>
                     </div>
                   ) : (
-                    newQuiz.questions.map((q, qIdx) => (
-                    <div key={qIdx} className="p-6 bg-gray-50 rounded-[2rem] border border-gray-100 space-y-4">
-                      <div className="flex items-start justify-between gap-4">
-                        <div className="flex-1">
-                          <div className="flex items-center justify-between mb-1">
-                            <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest">Question {qIdx + 1}</label>
-                            <div className="flex gap-2">
-                              <button 
-                                type="button"
-                                onClick={() => updateQuestion(qIdx, 'type', 'mcq')}
-                                className={`text-[10px] font-black px-2 py-1 rounded-lg uppercase tracking-widest transition-all ${
-                                  q.type === 'mcq' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-500'
-                                }`}
-                              >
-                                MCQ
-                              </button>
-                              <button 
-                                type="button"
-                                onClick={() => updateQuestion(qIdx, 'type', 'seq')}
-                                className={`text-[10px] font-black px-2 py-1 rounded-lg uppercase tracking-widest transition-all ${
-                                  q.type === 'seq' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-500'
-                                }`}
-                              >
-                                SEQ
-                              </button>
-                            </div>
-                          </div>
-                          <input 
-                            required
-                            type="text" 
-                            className="w-full px-4 py-3 bg-white border-none rounded-xl focus:ring-2 focus:ring-blue-100 font-bold text-gray-900"
-                            placeholder="Enter question text..."
-                            value={q.question}
-                            onChange={(e) => updateQuestion(qIdx, 'question', e.target.value)}
-                          />
-                        </div>
-                        {newQuiz.questions.length > 1 && (
+                    <div className="space-y-6">
+                      {newQuiz.questions.length > 0 && (
+                        <div className="flex justify-end">
                           <button 
                             type="button"
                             onClick={() => {
-                              const updated = newQuiz.questions.filter((_, i) => i !== qIdx);
-                              setNewQuiz({ ...newQuiz, questions: updated });
+                              if (window.confirm('Clear all questions?')) {
+                                setNewQuiz({ ...newQuiz, questions: [] });
+                              }
                             }}
-                            className="mt-6 p-2 text-red-400 hover:bg-red-50 rounded-lg"
+                            className="text-[10px] font-black text-red-500 uppercase tracking-widest hover:underline"
                           >
-                            <Trash2 className="w-4 h-4" />
+                            Clear All
                           </button>
-                        )}
-                      </div>
-
-                      {q.type === 'mcq' ? (
-                        <div className="space-y-4">
-                          <label className="block text-[10px] font-black text-blue-600 uppercase tracking-widest mb-2">Options & Answer Key</label>
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            {q.options.map((opt, oIdx) => (
-                              <div 
-                                key={oIdx} 
-                                className={`flex items-center gap-3 p-3 rounded-2xl border-2 transition-all ${
-                                  q.correctAnswer === oIdx ? 'bg-green-50 border-green-200' : 'bg-white border-transparent'
-                                }`}
-                              >
-                                <input 
-                                  type="radio"
-                                  name={`correct-${qIdx}`}
-                                  checked={q.correctAnswer === oIdx}
-                                  onChange={() => updateQuestion(qIdx, 'correctAnswer', oIdx)}
-                                  className="w-5 h-5 text-green-600 focus:ring-green-500"
-                                />
-                                <div className="flex-1">
-                                  <input 
-                                    required
-                                    type="text" 
-                                    className="w-full bg-transparent border-none p-0 focus:ring-0 font-bold text-gray-900 placeholder:text-gray-300"
-                                    placeholder={`Option ${String.fromCharCode(65 + oIdx)}`}
-                                    value={opt}
-                                    onChange={(e) => updateOption(qIdx, oIdx, e.target.value)}
-                                  />
-                                </div>
-                                {q.correctAnswer === oIdx && (
-                                  <span className="text-[10px] font-black text-green-600 uppercase tracking-widest">Correct</span>
-                                )}
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="p-4 bg-blue-50 rounded-xl border border-blue-100">
-                          <p className="text-xs font-bold text-blue-600 italic">This is a Short Essay Question (SEQ). Students will provide a written answer.</p>
                         </div>
                       )}
+                      {newQuiz.questions.map((q, qIdx) => (
+                        <div key={qIdx} className="p-6 bg-gray-50 rounded-[2rem] border border-gray-100 space-y-4 relative group">
+                          <div className="flex items-start justify-between gap-4">
+                            <div className="flex-1">
+                              <div className="flex items-center gap-2 mb-2">
+                                <span className={`px-2 py-1 text-[10px] font-black rounded-lg uppercase tracking-widest ${
+                                  q.type === 'mcq' ? 'bg-blue-600 text-white' : 'bg-indigo-600 text-white'
+                                }`}>
+                                  {q.type}
+                                </span>
+                                <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest">Question {qIdx + 1}</label>
+                              </div>
+                              <textarea 
+                                required
+                                rows={2}
+                                className="w-full px-4 py-3 bg-white border-none rounded-xl focus:ring-2 focus:ring-blue-100 font-bold text-gray-900 resize-none"
+                                placeholder="Enter question text..."
+                                value={q.question}
+                                onChange={(e) => updateQuestion(qIdx, 'question', e.target.value)}
+                              />
+                            </div>
+                            <div className="flex flex-col gap-2">
+                              <button 
+                                type="button"
+                                onClick={() => {
+                                  const updated = newQuiz.questions.filter((_, i) => i !== qIdx);
+                                  setNewQuiz({ ...newQuiz, questions: updated });
+                                }}
+                                className="p-2 text-red-400 hover:bg-red-50 rounded-lg transition-all"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
+                          </div>
+
+                          {q.type === 'mcq' ? (
+                            <div className="space-y-4">
+                              <div className="flex items-center justify-between">
+                                <label className="block text-[10px] font-black text-blue-600 uppercase tracking-widest">Options (Select Correct Answer)</label>
+                                {q.correctAnswer === -1 && (
+                                  <span className="text-[10px] font-black text-red-500 animate-pulse">Select Answer!</span>
+                                )}
+                              </div>
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                {q.options.map((opt, oIdx) => (
+                                  <div 
+                                    key={oIdx} 
+                                    onClick={() => updateQuestion(qIdx, 'correctAnswer', oIdx)}
+                                    className={`flex items-center gap-3 p-4 rounded-2xl border-2 cursor-pointer transition-all ${
+                                      q.correctAnswer === oIdx 
+                                        ? 'bg-green-50 border-green-500 shadow-md' 
+                                        : 'bg-white border-transparent hover:border-gray-200'
+                                    }`}
+                                  >
+                                    <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all ${
+                                      q.correctAnswer === oIdx ? 'bg-green-500 border-green-500' : 'border-gray-200'
+                                    }`}>
+                                      {q.correctAnswer === oIdx && <div className="w-2 h-2 bg-white rounded-full" />}
+                                    </div>
+                                    <input 
+                                      required
+                                      type="text" 
+                                      className="flex-1 bg-transparent border-none p-0 focus:ring-0 font-bold text-gray-900"
+                                      placeholder={`Option ${String.fromCharCode(65 + oIdx)}`}
+                                      value={opt}
+                                      onClick={(e) => e.stopPropagation()}
+                                      onChange={(e) => updateOption(qIdx, oIdx, e.target.value)}
+                                    />
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="p-4 bg-blue-50 rounded-xl border border-blue-100">
+                              <p className="text-xs font-bold text-blue-600 italic">Short Essay Question (SEQ) - Students will provide a written answer.</p>
+                            </div>
+                          )}
+                        </div>
+                      ))}
                     </div>
-                  ))
-                )}
-              </div>
+                  )}
+                </div>
 
                 <div className="pt-4 flex gap-4 sticky bottom-0 bg-white py-4 border-t border-gray-100">
                   <button 
