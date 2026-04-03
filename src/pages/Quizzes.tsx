@@ -1,14 +1,56 @@
 import React, { useState, useEffect } from 'react';
 import { db, collection, getDocs, setDoc, doc, deleteDoc, Timestamp, query, where, addDoc, onSnapshot } from '../lib/firebase';
-import { BrainCircuit, Plus, Trash2, Clock, CheckCircle2, XCircle, ChevronRight, Play, Save, ListChecks, TrendingUp } from 'lucide-react';
+import { 
+  BrainCircuit, 
+  Plus, 
+  Trash2, 
+  Clock, 
+  CheckCircle2, 
+  XCircle, 
+  ChevronRight, 
+  Play, 
+  Save, 
+  ListChecks, 
+  TrendingUp,
+  Users,
+  Calendar,
+  FileText,
+  Info,
+  BarChart3,
+  PieChart as PieChartIcon,
+  LayoutDashboard,
+  Search,
+  AlertCircle,
+  BookOpen
+} from 'lucide-react';
+import { 
+  BarChart, 
+  Bar, 
+  XAxis, 
+  YAxis, 
+  CartesianGrid, 
+  Tooltip, 
+  ResponsiveContainer, 
+  PieChart, 
+  Pie, 
+  Cell,
+  LineChart,
+  Line
+} from 'recharts';
 import { motion, AnimatePresence } from 'motion/react';
 import { UserProfile } from '../App';
 
 interface Question {
+  id: string;
   question: string;
   options: string[];
-  correctAnswer: number;
-  type: 'mcq' | 'seq';
+  correctAnswer: any; // Can be number, number[], boolean, or string
+  type: 'mcq' | 'multi-mcq' | 'true-false' | 'short-answer' | 'long-answer';
+  difficulty: 'easy' | 'medium' | 'hard';
+  topic: string;
+  explanation?: string;
+  imageUrl?: string;
+  keywords?: string[]; // For short answer auto-grading
 }
 
 interface Quiz {
@@ -18,8 +60,34 @@ interface Quiz {
   subjectId: string;
   questions: Question[];
   timeLimit: number;
+  attemptsLimit: number;
+  startTime?: Timestamp;
+  endTime?: Timestamp;
+  shuffleQuestions: boolean;
+  shuffleOptions: boolean;
+  preventBacktracking: boolean;
   createdAt: Timestamp;
   createdBy: string;
+}
+
+interface QuizAttempt {
+  id: string;
+  quizId: string;
+  studentId: string;
+  studentName: string;
+  answers: any[];
+  startTime: Timestamp;
+  lastUpdated: Timestamp;
+  status: 'in-progress' | 'completed';
+  timeSpent: number;
+  cheatingWarnings: number;
+  deviceInfo: string;
+  ipAddress: string;
+  score?: number;
+  totalQuestions?: number;
+  percentage?: number;
+  seqMarks?: number[];
+  markingStatus?: 'pending' | 'marked';
 }
 
 export default function Quizzes({ profile }: { profile: UserProfile }) {
@@ -47,7 +115,22 @@ export default function Quizzes({ profile }: { profile: UserProfile }) {
     courseId: '',
     subjectId: '',
     timeLimit: 30,
-    questions: [{ question: '', options: ['', '', '', ''], correctAnswer: -1, type: 'mcq' as 'mcq' | 'seq' }]
+    attemptsLimit: 1,
+    startTime: '',
+    endTime: '',
+    shuffleQuestions: false,
+    shuffleOptions: false,
+    preventBacktracking: false,
+    questions: [{ 
+      id: Math.random().toString(36).substr(2, 9),
+      question: '', 
+      options: ['', '', '', ''], 
+      correctAnswer: -1, 
+      type: 'mcq' as any,
+      difficulty: 'medium' as any,
+      topic: '',
+      explanation: ''
+    }]
   });
 
   const parseBulkQuestions = () => {
@@ -80,10 +163,13 @@ export default function Quizzes({ profile }: { profile: UserProfile }) {
         while (options.length < 4) options.push('');
         
         questions.push({
+          id: Math.random().toString(36).substr(2, 9),
           question: questionText,
           options: options.slice(0, 4),
           correctAnswer: correctAnswer >= 0 && correctAnswer < 4 ? correctAnswer : -1,
-          type: 'mcq'
+          type: 'mcq',
+          difficulty: 'medium',
+          topic: ''
         });
       }
     });
@@ -152,7 +238,7 @@ export default function Quizzes({ profile }: { profile: UserProfile }) {
     e.preventDefault();
     
     // Validation
-    const invalidMcq = newQuiz.questions.find(q => q.type === 'mcq' && q.correctAnswer === -1);
+    const invalidMcq = newQuiz.questions.find(q => (q.type === 'mcq' || q.type === 'true-false') && q.correctAnswer === -1);
     if (invalidMcq) {
       alert(`Please select a correct answer for question: "${invalidMcq.question.substring(0, 30)}..."`);
       return;
@@ -167,17 +253,46 @@ export default function Quizzes({ profile }: { profile: UserProfile }) {
     try {
       const quizData = {
         ...newQuiz,
+        startTime: newQuiz.startTime ? Timestamp.fromDate(new Date(newQuiz.startTime)) : null,
+        endTime: newQuiz.endTime ? Timestamp.fromDate(new Date(newQuiz.endTime)) : null,
         createdAt: Timestamp.now(),
         createdBy: profile.uid
       };
       await addDoc(collection(db, 'quizzes'), quizData);
+      
+      // Also add questions to Question Bank
+      for (const q of newQuiz.questions) {
+        await addDoc(collection(db, 'question_bank'), {
+          ...q,
+          courseId: newQuiz.courseId,
+          subjectId: newQuiz.subjectId,
+          createdAt: Timestamp.now(),
+          createdBy: profile.uid
+        });
+      }
+
       setIsModalOpen(false);
       setNewQuiz({
         title: '',
         courseId: '',
         subjectId: '',
         timeLimit: 30,
-        questions: [{ question: '', options: ['', '', '', ''], correctAnswer: -1, type: 'mcq' }]
+        attemptsLimit: 1,
+        startTime: '',
+        endTime: '',
+        shuffleQuestions: false,
+        shuffleOptions: false,
+        preventBacktracking: false,
+        questions: [{ 
+          id: Math.random().toString(36).substr(2, 9),
+          question: '', 
+          options: ['', '', '', ''], 
+          correctAnswer: -1, 
+          type: 'mcq',
+          difficulty: 'medium',
+          topic: '',
+          explanation: ''
+        }]
       });
       fetchQuizzes();
     } catch (error) {
@@ -196,14 +311,18 @@ export default function Quizzes({ profile }: { profile: UserProfile }) {
     }
   };
 
-  const addQuestion = (type: 'mcq' | 'seq' = 'mcq') => {
+  const addQuestion = (type: any = 'mcq') => {
     setNewQuiz({
       ...newQuiz,
       questions: [...newQuiz.questions, { 
+        id: Math.random().toString(36).substr(2, 9),
         question: '', 
-        options: type === 'mcq' ? ['', '', '', ''] : [], 
-        correctAnswer: -1, 
-        type 
+        options: (type === 'mcq' || type === 'multi-mcq') ? ['', '', '', ''] : (type === 'true-false' ? ['True', 'False'] : []), 
+        correctAnswer: type === 'multi-mcq' ? [] : -1, 
+        type,
+        difficulty: 'medium',
+        topic: '',
+        explanation: ''
       }]
     });
   };
@@ -222,16 +341,141 @@ export default function Quizzes({ profile }: { profile: UserProfile }) {
 
   // Quiz Player State
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
-  const [answers, setAnswers] = useState<(number | string)[]>([]);
+  const [answers, setAnswers] = useState<any[]>([]);
   const [timeLeft, setTimeLeft] = useState(0);
+  const [cheatingWarnings, setCheatingWarnings] = useState(0);
+  const [attemptId, setAttemptId] = useState<string | null>(null);
 
-  const startQuiz = (quiz: Quiz) => {
+  const startQuiz = async (quiz: Quiz) => {
+    // Check for existing attempt
+    const q = query(
+      collection(db, 'quiz_attempts'),
+      where('quizId', '==', quiz.id),
+      where('studentId', '==', profile.uid),
+      where('status', '==', 'in-progress')
+    );
+    const snapshot = await getDocs(q);
+    
+    let currentAttempt;
+    if (!snapshot.empty) {
+      currentAttempt = { id: snapshot.docs[0].id, ...snapshot.docs[0].data() } as any;
+      setAnswers(currentAttempt.answers);
+      setCheatingWarnings(currentAttempt.cheatingWarnings || 0);
+      setAttemptId(currentAttempt.id);
+      
+      const elapsed = Math.floor((Timestamp.now().toMillis() - currentAttempt.startTime.toMillis()) / 1000);
+      const remaining = (quiz.timeLimit * 60) - elapsed;
+      setTimeLeft(remaining > 0 ? remaining : 0);
+    } else {
+      // Check attempts limit
+      const completedQ = query(
+        collection(db, 'quiz_attempts'),
+        where('quizId', '==', quiz.id),
+        where('studentId', '==', profile.uid),
+        where('status', '==', 'completed')
+      );
+      const completedSnapshot = await getDocs(completedQ);
+      if (completedSnapshot.size >= quiz.attemptsLimit) {
+        alert('You have reached the maximum number of attempts for this quiz.');
+        return;
+      }
+
+      const newAttempt = {
+        quizId: quiz.id,
+        quizTitle: quiz.title,
+        studentId: profile.uid,
+        studentName: profile.name,
+        answers: quiz.questions.map(q => {
+          if (q.type === 'multi-mcq') return [];
+          if (q.type === 'true-false') return -1;
+          if (q.type === 'mcq') return -1;
+          return '';
+        }),
+        startTime: Timestamp.now(),
+        lastUpdated: Timestamp.now(),
+        status: 'in-progress',
+        timeSpent: 0,
+        cheatingWarnings: 0,
+        deviceInfo: navigator.userAgent,
+        ipAddress: 'Unknown' // IP would normally be handled server-side
+      };
+      const docRef = await addDoc(collection(db, 'quiz_attempts'), newAttempt);
+      setAttemptId(docRef.id);
+      setAnswers(newAttempt.answers);
+      setCheatingWarnings(0);
+      setTimeLeft(quiz.timeLimit * 60);
+    }
+
     setActiveQuiz(quiz);
     setCurrentQuestionIndex(0);
-    setAnswers(quiz.questions.map(q => q.type === 'mcq' ? -1 : ''));
-    setTimeLeft(quiz.timeLimit * 60);
     setQuizResults(null);
+
+    // Enforce Fullscreen
+    try {
+      if (document.documentElement.requestFullscreen) {
+        await document.documentElement.requestFullscreen();
+      }
+    } catch (err) {
+      console.warn('Fullscreen request failed:', err);
+    }
   };
+
+  // Auto-save answers
+  useEffect(() => {
+    if (activeQuiz && attemptId && !quizResults) {
+      const saveAnswers = async () => {
+        try {
+          await setDoc(doc(db, 'quiz_attempts', attemptId), {
+            answers,
+            lastUpdated: Timestamp.now(),
+            cheatingWarnings
+          }, { merge: true });
+        } catch (error) {
+          console.error('Error auto-saving answers:', error);
+        }
+      };
+      const timer = setTimeout(saveAnswers, 2000);
+      return () => clearTimeout(timer);
+    }
+  }, [answers, cheatingWarnings, attemptId, activeQuiz, quizResults]);
+
+  // Anti-cheating: Tab switching detection
+  useEffect(() => {
+    if (activeQuiz && !quizResults) {
+      const handleVisibilityChange = () => {
+        if (document.hidden) {
+          setCheatingWarnings(prev => {
+            const newVal = prev + 1;
+            if (newVal >= 3) {
+              alert('Multiple tab switches detected. Auto-submitting quiz.');
+              submitQuiz();
+            } else {
+              alert(`Warning: Tab switching is not allowed! (${newVal}/3)`);
+            }
+            return newVal;
+          });
+        }
+      };
+
+      const handleContextMenu = (e: MouseEvent) => e.preventDefault();
+      const handleKeyDown = (e: KeyboardEvent) => {
+        if ((e.ctrlKey || e.metaKey) && (e.key === 'c' || e.key === 'v')) {
+          e.preventDefault();
+          alert('Copy/Paste is disabled during the quiz.');
+        }
+      };
+
+      document.addEventListener('visibilitychange', handleVisibilityChange);
+      document.addEventListener('contextmenu', handleContextMenu);
+      document.addEventListener('keydown', handleKeyDown);
+
+      return () => {
+        document.removeEventListener('visibilitychange', handleVisibilityChange);
+        document.removeEventListener('contextmenu', handleContextMenu);
+        document.removeEventListener('keydown', handleKeyDown);
+      };
+    }
+  }, [activeQuiz, quizResults]);
 
   useEffect(() => {
     if (activeQuiz && timeLeft > 0 && !quizResults) {
@@ -243,17 +487,36 @@ export default function Quizzes({ profile }: { profile: UserProfile }) {
   }, [activeQuiz, timeLeft, quizResults]);
 
   const submitQuiz = async () => {
-    if (!activeQuiz) return;
+    if (!activeQuiz || !attemptId) return;
+    
+    // Exit Fullscreen
+    if (document.fullscreenElement) {
+      document.exitFullscreen().catch(() => {});
+    }
+
     let score = 0;
-    let mcqCount = 0;
-    let hasSeq = false;
+    let autoGradableCount = 0;
+    let hasManualMarking = false;
 
     activeQuiz.questions.forEach((q, i) => {
-      if (q.type === 'mcq') {
-        mcqCount++;
-        if (answers[i] === q.correctAnswer) score++;
-      } else {
-        hasSeq = true;
+      const userAnswer = answers[i];
+      if (q.type === 'mcq' || q.type === 'true-false') {
+        autoGradableCount++;
+        if (userAnswer === q.correctAnswer) score++;
+      } else if (q.type === 'multi-mcq') {
+        autoGradableCount++;
+        const correctOptions = q.correctAnswer as number[];
+        const userOptions = userAnswer as number[];
+        if (correctOptions.length === userOptions.length && correctOptions.every(val => userOptions.includes(val))) {
+          score++;
+        }
+      } else if (q.type === 'short-answer') {
+        autoGradableCount++;
+        const normalizedUser = (userAnswer as string).toLowerCase().trim();
+        const matches = q.keywords?.some(k => normalizedUser.includes(k.toLowerCase())) || normalizedUser === (q.correctAnswer as string).toLowerCase().trim();
+        if (matches) score++;
+      } else if (q.type === 'long-answer') {
+        hasManualMarking = true;
       }
     });
     
@@ -264,17 +527,24 @@ export default function Quizzes({ profile }: { profile: UserProfile }) {
       studentName: profile.name,
       score,
       totalQuestions: activeQuiz.questions.length,
-      mcqCount,
-      percentage: mcqCount > 0 ? (score / mcqCount) * 100 : 0,
+      percentage: autoGradableCount > 0 ? (score / autoGradableCount) * 100 : 0,
       completedAt: Timestamp.now(),
       userAnswers: answers,
       questions: activeQuiz.questions,
-      status: hasSeq ? 'pending_marking' : 'marked',
-      seqMarks: hasSeq ? new Array(activeQuiz.questions.length).fill(0) : []
+      status: hasManualMarking ? 'pending_marking' : 'marked',
+      cheatingWarnings,
+      timeSpent: (activeQuiz.timeLimit * 60) - timeLeft
     };
 
     try {
+      await setDoc(doc(db, 'quiz_attempts', attemptId), {
+        ...resultData,
+        status: 'completed'
+      }, { merge: true });
+      
+      // Also save to quiz_results for backward compatibility and analytics
       await addDoc(collection(db, 'quiz_results'), resultData);
+      
       setQuizResults(resultData);
     } catch (error) {
       console.error('Error saving result:', error);
@@ -359,33 +629,204 @@ export default function Quizzes({ profile }: { profile: UserProfile }) {
             <TrendingUp className="w-5 h-5" />
             Leaderboard
           </button>
+          <button 
+            onClick={() => {
+              setShowAnalytics(!showAnalytics);
+              setShowLeaderboard(false);
+            }}
+            className={`px-6 py-3 rounded-2xl font-bold transition-all flex items-center justify-center gap-2 ${
+              showAnalytics ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+            }`}
+          >
+            <LayoutDashboard className="w-5 h-5" />
+            {profile.role === 'student' ? 'My Progress' : 'Analytics'}
+          </button>
           {(profile.role === 'admin' || profile.role === 'teacher') && (
-            <>
-              <button 
-                onClick={() => {
-                  setShowAnalytics(!showAnalytics);
-                  setShowLeaderboard(false);
-                }}
-                className={`px-6 py-3 rounded-2xl font-bold transition-all flex items-center justify-center gap-2 ${
-                  showAnalytics ? 'bg-amber-100 text-amber-700' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                }`}
-              >
-                <BrainCircuit className="w-5 h-5" />
-                {showAnalytics ? 'View Quizzes' : 'View Analytics'}
-              </button>
-              <button 
-                onClick={() => setIsModalOpen(true)}
-                className="px-6 py-3 bg-blue-600 text-white rounded-2xl font-bold hover:bg-blue-700 transition-all shadow-lg shadow-blue-100 flex items-center justify-center gap-2"
-              >
-                <Plus className="w-5 h-5" />
-                Create Quiz
-              </button>
-            </>
+            <button 
+              onClick={() => setIsModalOpen(true)}
+              className="px-6 py-3 bg-blue-600 text-white rounded-2xl font-black shadow-lg shadow-blue-100 hover:bg-blue-700 transition-all flex items-center justify-center gap-2"
+            >
+              <Plus className="w-5 h-5" />
+              Create Quiz
+            </button>
           )}
         </div>
       </div>
 
-      {showLeaderboard ? (
+      {showAnalytics ? (
+        <div className="space-y-8">
+          {profile.role === 'student' ? (
+            <>
+              {(() => {
+                const userResults = allResults.filter(r => r.studentId === profile.uid);
+                return (
+                  <>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                      <div className="bg-white p-6 rounded-[2rem] border border-gray-100 shadow-sm">
+                        <div className="w-12 h-12 bg-blue-50 text-blue-600 rounded-2xl flex items-center justify-center mb-4">
+                          <FileText className="w-6 h-6" />
+                        </div>
+                        <p className="text-2xl font-black text-gray-900">{userResults.length}</p>
+                        <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">Quizzes Taken</p>
+                      </div>
+                      <div className="bg-white p-6 rounded-[2rem] border border-gray-100 shadow-sm">
+                        <div className="w-12 h-12 bg-green-50 text-green-600 rounded-2xl flex items-center justify-center mb-4">
+                          <TrendingUp className="w-6 h-6" />
+                        </div>
+                        <p className="text-2xl font-black text-gray-900">
+                          {userResults.length > 0 
+                            ? Math.round(userResults.reduce((acc, curr) => acc + curr.percentage, 0) / userResults.length) 
+                            : 0}%
+                        </p>
+                        <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">Average Score</p>
+                      </div>
+                      <div className="bg-white p-6 rounded-[2rem] border border-gray-100 shadow-sm">
+                        <div className="w-12 h-12 bg-amber-50 text-amber-600 rounded-2xl flex items-center justify-center mb-4">
+                          <CheckCircle2 className="w-6 h-6" />
+                        </div>
+                        <p className="text-2xl font-black text-gray-900">
+                          {userResults.filter(r => r.percentage >= 50).length}
+                        </p>
+                        <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">Quizzes Passed</p>
+                      </div>
+                    </div>
+
+                    <div className="bg-white p-8 rounded-[2.5rem] border border-gray-100 shadow-sm">
+                      <h3 className="text-lg font-black text-gray-900 mb-8 flex items-center gap-2">
+                        <TrendingUp className="w-5 h-5 text-blue-600" />
+                        Performance Trend
+                      </h3>
+                      <div className="h-[300px]">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <LineChart data={userResults.slice().reverse().map((r, i) => ({
+                            name: `Quiz ${i + 1}`,
+                            score: r.percentage
+                          }))}>
+                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f3f4f6" />
+                            <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 10, fontWeight: 700 }} />
+                            <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 10, fontWeight: 700 }} domain={[0, 100]} />
+                            <Tooltip 
+                              contentStyle={{ borderRadius: '1rem', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}
+                            />
+                            <Line type="monotone" dataKey="score" stroke="#3b82f6" strokeWidth={4} dot={{ r: 6, fill: '#3b82f6', strokeWidth: 2, stroke: '#fff' }} activeDot={{ r: 8 }} />
+                          </LineChart>
+                        </ResponsiveContainer>
+                      </div>
+                    </div>
+                  </>
+                );
+              })()}
+            </>
+          ) : (
+            <>
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+                <div className="bg-white p-6 rounded-[2rem] border border-gray-100 shadow-sm">
+                  <div className="w-12 h-12 bg-blue-50 text-blue-600 rounded-2xl flex items-center justify-center mb-4">
+                    <Users className="w-6 h-6" />
+                  </div>
+                  <p className="text-2xl font-black text-gray-900">{allResults.length}</p>
+                  <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">Total Attempts</p>
+                </div>
+                <div className="bg-white p-6 rounded-[2rem] border border-gray-100 shadow-sm">
+                  <div className="w-12 h-12 bg-green-50 text-green-600 rounded-2xl flex items-center justify-center mb-4">
+                    <TrendingUp className="w-6 h-6" />
+                  </div>
+                  <p className="text-2xl font-black text-gray-900">
+                    {allResults.length > 0 
+                      ? Math.round(allResults.reduce((acc, curr) => acc + curr.percentage, 0) / allResults.length) 
+                      : 0}%
+                  </p>
+                  <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">Average Score</p>
+                </div>
+                <div className="bg-white p-6 rounded-[2rem] border border-gray-100 shadow-sm">
+                  <div className="w-12 h-12 bg-amber-50 text-amber-600 rounded-2xl flex items-center justify-center mb-4">
+                    <Clock className="w-6 h-6" />
+                  </div>
+                  <p className="text-2xl font-black text-gray-900">
+                    {allResults.filter(r => r.status === 'pending_marking').length}
+                  </p>
+                  <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">Pending Marking</p>
+                </div>
+                <div className="bg-white p-6 rounded-[2rem] border border-gray-100 shadow-sm">
+                  <div className="w-12 h-12 bg-purple-50 text-purple-600 rounded-2xl flex items-center justify-center mb-4">
+                    <FileText className="w-6 h-6" />
+                  </div>
+                  <p className="text-2xl font-black text-gray-900">{quizzes.length}</p>
+                  <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">Active Quizzes</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                <div className="bg-white p-8 rounded-[2.5rem] border border-gray-100 shadow-sm">
+                  <h3 className="text-lg font-black text-gray-900 mb-8 flex items-center gap-2">
+                    <BarChart3 className="w-5 h-5 text-blue-600" />
+                    Score Distribution
+                  </h3>
+                  <div className="h-[300px]">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={[
+                        { range: '0-20', count: allResults.filter(r => r.percentage < 20).length },
+                        { range: '20-40', count: allResults.filter(r => r.percentage >= 20 && r.percentage < 40).length },
+                        { range: '40-60', count: allResults.filter(r => r.percentage >= 40 && r.percentage < 60).length },
+                        { range: '60-80', count: allResults.filter(r => r.percentage >= 60 && r.percentage < 80).length },
+                        { range: '80-100', count: allResults.filter(r => r.percentage >= 80).length },
+                      ]}>
+                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f3f4f6" />
+                        <XAxis dataKey="range" axisLine={false} tickLine={false} tick={{ fontSize: 10, fontWeight: 700 }} />
+                        <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 10, fontWeight: 700 }} />
+                        <Tooltip 
+                          contentStyle={{ borderRadius: '1rem', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}
+                          cursor={{ fill: '#f9fafb' }}
+                        />
+                        <Bar dataKey="count" fill="#3b82f6" radius={[4, 4, 0, 0]} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+
+                <div className="bg-white p-8 rounded-[2.5rem] border border-gray-100 shadow-sm">
+                  <h3 className="text-lg font-black text-gray-900 mb-8 flex items-center gap-2">
+                    <PieChartIcon className="w-5 h-5 text-purple-600" />
+                    Pass vs Fail Rate
+                  </h3>
+                  <div className="h-[300px]">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <PieChart>
+                        <Pie
+                          data={[
+                            { name: 'Pass', value: allResults.filter(r => r.percentage >= 50).length },
+                            { name: 'Fail', value: allResults.filter(r => r.percentage < 50).length },
+                          ]}
+                          cx="50%"
+                          cy="50%"
+                          innerRadius={60}
+                          outerRadius={80}
+                          paddingAngle={5}
+                          dataKey="value"
+                        >
+                          <Cell fill="#10b981" />
+                          <Cell fill="#ef4444" />
+                        </Pie>
+                        <Tooltip />
+                      </PieChart>
+                    </ResponsiveContainer>
+                  </div>
+                  <div className="flex justify-center gap-8 mt-4">
+                    <div className="flex items-center gap-2">
+                      <div className="w-3 h-3 bg-green-500 rounded-full" />
+                      <span className="text-xs font-bold text-gray-600">Pass (≥50%)</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="w-3 h-3 bg-red-500 rounded-full" />
+                      <span className="text-xs font-bold text-gray-600">Fail (&lt;50%)</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+      ) : showLeaderboard ? (
         <div className="space-y-8">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             {topScorers.slice(0, 3).map((scorer, idx) => (
@@ -552,87 +993,139 @@ export default function Quizzes({ profile }: { profile: UserProfile }) {
                 </div>
               </div>
 
-              <div className="mb-12">
-                <h3 className="text-xl font-bold text-gray-800 mb-8 leading-relaxed">
-                  {activeQuiz.questions[currentQuestionIndex].question}
-                </h3>
-                {activeQuiz.questions[currentQuestionIndex].type === 'mcq' ? (
-                  <div className="grid gap-4">
-                    {activeQuiz.questions[currentQuestionIndex].options.map((option, idx) => (
-                      <button
-                        key={idx}
-                        onClick={() => {
+                <div className="mb-12">
+                  <div className="flex items-center gap-3 mb-6">
+                    <span className={`px-3 py-1 text-[10px] font-black rounded-lg uppercase tracking-widest ${
+                      activeQuiz.questions[currentQuestionIndex].difficulty === 'easy' ? 'bg-green-100 text-green-700' :
+                      activeQuiz.questions[currentQuestionIndex].difficulty === 'medium' ? 'bg-amber-100 text-amber-700' :
+                      'bg-red-100 text-red-700'
+                    }`}>
+                      {activeQuiz.questions[currentQuestionIndex].difficulty}
+                    </span>
+                    <span className="px-3 py-1 text-[10px] font-black bg-blue-100 text-blue-700 rounded-lg uppercase tracking-widest">
+                      {activeQuiz.questions[currentQuestionIndex].topic}
+                    </span>
+                  </div>
+                  <h3 className="text-xl font-bold text-gray-800 mb-8 leading-relaxed">
+                    {activeQuiz.questions[currentQuestionIndex].question}
+                  </h3>
+
+                  {(activeQuiz.questions[currentQuestionIndex].type === 'mcq' || activeQuiz.questions[currentQuestionIndex].type === 'true-false') ? (
+                    <div className="grid gap-4">
+                      {activeQuiz.questions[currentQuestionIndex].options.map((option, idx) => (
+                        <button
+                          key={idx}
+                          onClick={() => {
+                            const newAnswers = [...answers];
+                            newAnswers[currentQuestionIndex] = idx;
+                            setAnswers(newAnswers);
+                          }}
+                          className={`w-full text-left p-6 rounded-2xl font-bold transition-all border-2 flex items-center gap-4 ${
+                            answers[currentQuestionIndex] === idx 
+                              ? 'bg-blue-50 border-blue-600 text-blue-700 shadow-md' 
+                              : 'bg-gray-50 border-transparent text-gray-600 hover:bg-gray-100'
+                          }`}
+                        >
+                          <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-sm ${
+                            answers[currentQuestionIndex] === idx ? 'bg-blue-600 text-white' : 'bg-white text-gray-400'
+                          }`}>
+                            {activeQuiz.questions[currentQuestionIndex].type === 'true-false' 
+                              ? (idx === 0 ? 'T' : 'F')
+                              : String.fromCharCode(65 + idx)
+                            }
+                          </div>
+                          {option}
+                        </button>
+                      ))}
+                    </div>
+                  ) : activeQuiz.questions[currentQuestionIndex].type === 'multi-mcq' ? (
+                    <div className="grid gap-4">
+                      {activeQuiz.questions[currentQuestionIndex].options.map((option, idx) => {
+                        const isSelected = (answers[currentQuestionIndex] as number[]).includes(idx);
+                        return (
+                          <button
+                            key={idx}
+                            onClick={() => {
+                              const newAnswers = [...answers];
+                              const current = [...(newAnswers[currentQuestionIndex] as number[])];
+                              const index = current.indexOf(idx);
+                              if (index > -1) current.splice(index, 1);
+                              else current.push(idx);
+                              newAnswers[currentQuestionIndex] = current;
+                              setAnswers(newAnswers);
+                            }}
+                            className={`w-full text-left p-6 rounded-2xl font-bold transition-all border-2 flex items-center gap-4 ${
+                              isSelected 
+                                ? 'bg-blue-50 border-blue-600 text-blue-700 shadow-md' 
+                                : 'bg-gray-50 border-transparent text-gray-600 hover:bg-gray-100'
+                            }`}
+                          >
+                            <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-sm ${
+                              isSelected ? 'bg-blue-600 text-white' : 'bg-white text-gray-400'
+                            }`}>
+                              {isSelected ? <CheckCircle2 className="w-4 h-4" /> : String.fromCharCode(65 + idx)}
+                            </div>
+                            {option}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div className="space-y-4">
+                      <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-2">Your Answer</label>
+                      <textarea 
+                        className="w-full h-48 px-6 py-5 bg-gray-50 border-none rounded-[2rem] focus:ring-2 focus:ring-blue-100 font-medium text-gray-700"
+                        placeholder="Type your answer here..."
+                        value={answers[currentQuestionIndex] as string}
+                        onChange={(e) => {
                           const newAnswers = [...answers];
-                          newAnswers[currentQuestionIndex] = idx;
+                          newAnswers[currentQuestionIndex] = e.target.value;
                           setAnswers(newAnswers);
                         }}
-                        className={`w-full text-left p-6 rounded-2xl font-bold transition-all border-2 flex items-center gap-4 ${
-                          answers[currentQuestionIndex] === idx 
-                            ? 'bg-blue-50 border-blue-600 text-blue-700 shadow-md' 
-                            : 'bg-gray-50 border-transparent text-gray-600 hover:bg-gray-100'
-                        }`}
-                      >
-                        <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-sm ${
-                          answers[currentQuestionIndex] === idx ? 'bg-blue-600 text-white' : 'bg-white text-gray-400'
-                        }`}>
-                          {String.fromCharCode(65 + idx)}
-                        </div>
-                        {option}
-                      </button>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="space-y-4">
-                    <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-2">Your Answer</label>
-                    <textarea 
-                      className="w-full h-48 px-6 py-5 bg-gray-50 border-none rounded-[2rem] focus:ring-2 focus:ring-blue-100 font-medium text-gray-700"
-                      placeholder="Type your answer here..."
-                      value={answers[currentQuestionIndex] as string}
-                      onChange={(e) => {
-                        const newAnswers = [...answers];
-                        newAnswers[currentQuestionIndex] = e.target.value;
-                        setAnswers(newAnswers);
-                      }}
-                    />
-                  </div>
-                )}
-              </div>
+                      />
+                    </div>
+                  )}
+                </div>
 
-              <div className="flex items-center justify-between pt-8 border-t border-gray-100">
-                <button
-                  disabled={currentQuestionIndex === 0}
-                  onClick={() => setCurrentQuestionIndex(prev => prev - 1)}
-                  className="px-8 py-4 bg-gray-100 text-gray-500 rounded-2xl font-bold hover:bg-gray-200 transition-all disabled:opacity-30"
-                >
-                  Previous
-                </button>
-                {currentQuestionIndex === activeQuiz.questions.length - 1 ? (
+                <div className="flex items-center justify-between pt-8 border-t border-gray-100">
                   <button
-                    disabled={
-                      activeQuiz.questions[currentQuestionIndex].type === 'mcq' 
-                        ? answers[currentQuestionIndex] === -1 
-                        : (answers[currentQuestionIndex] as string).trim() === ''
-                    }
-                    onClick={submitQuiz}
-                    className="px-12 py-4 bg-green-600 text-white rounded-2xl font-black shadow-lg shadow-green-100 hover:bg-green-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                    disabled={currentQuestionIndex === 0 || activeQuiz.preventBacktracking}
+                    onClick={() => setCurrentQuestionIndex(prev => prev - 1)}
+                    className="px-8 py-4 bg-gray-100 text-gray-500 rounded-2xl font-bold hover:bg-gray-200 transition-all disabled:opacity-30"
                   >
-                    Finish Quiz
+                    Previous
                   </button>
-                ) : (
-                  <button
-                    disabled={
-                      activeQuiz.questions[currentQuestionIndex].type === 'mcq' 
-                        ? answers[currentQuestionIndex] === -1 
-                        : (answers[currentQuestionIndex] as string).trim() === ''
-                    }
-                    onClick={() => setCurrentQuestionIndex(prev => prev + 1)}
-                    className="px-12 py-4 bg-blue-600 text-white rounded-2xl font-black shadow-lg shadow-blue-100 hover:bg-blue-700 transition-all flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    Next Question
-                    <ChevronRight className="w-5 h-5" />
-                  </button>
-                )}
-              </div>
+                  {currentQuestionIndex === activeQuiz.questions.length - 1 ? (
+                    <button
+                      disabled={
+                        (activeQuiz.questions[currentQuestionIndex].type === 'mcq' || activeQuiz.questions[currentQuestionIndex].type === 'true-false')
+                          ? answers[currentQuestionIndex] === -1 
+                          : activeQuiz.questions[currentQuestionIndex].type === 'multi-mcq'
+                            ? (answers[currentQuestionIndex] as number[]).length === 0
+                            : (answers[currentQuestionIndex] as string).trim() === ''
+                      }
+                      onClick={submitQuiz}
+                      className="px-12 py-4 bg-green-600 text-white rounded-2xl font-black shadow-lg shadow-green-100 hover:bg-green-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      Finish Quiz
+                    </button>
+                  ) : (
+                    <button
+                      disabled={
+                        (activeQuiz.questions[currentQuestionIndex].type === 'mcq' || activeQuiz.questions[currentQuestionIndex].type === 'true-false')
+                          ? answers[currentQuestionIndex] === -1 
+                          : activeQuiz.questions[currentQuestionIndex].type === 'multi-mcq'
+                            ? (answers[currentQuestionIndex] as number[]).length === 0
+                            : (answers[currentQuestionIndex] as string).trim() === ''
+                      }
+                      onClick={() => setCurrentQuestionIndex(prev => prev + 1)}
+                      className="px-12 py-4 bg-blue-600 text-white rounded-2xl font-black shadow-lg shadow-blue-100 hover:bg-blue-700 transition-all flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      Next Question
+                      <ChevronRight className="w-5 h-5" />
+                    </button>
+                  )}
+                </div>
             </div>
           ) : (
             <div className="p-12 max-w-4xl mx-auto">
@@ -675,18 +1168,29 @@ export default function Quizzes({ profile }: { profile: UserProfile }) {
                         }`}>
                           {idx + 1}
                         </div>
-                        <h4 className="text-lg font-bold text-gray-800 leading-relaxed">{q.question}</h4>
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2 mb-2">
+                            <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">{q.type.replace('-', ' ')}</span>
+                            <span className="text-[10px] font-black text-blue-600 uppercase tracking-widest">• {q.topic}</span>
+                          </div>
+                          <h4 className="text-lg font-bold text-gray-800 leading-relaxed">{q.question}</h4>
+                        </div>
                       </div>
 
-                        {q.type === 'mcq' ? (
+                        {(q.type === 'mcq' || q.type === 'true-false' || q.type === 'multi-mcq') ? (
                           <div className="grid gap-3 ml-12">
                             {q.options.map((option: string, optIdx: number) => {
-                              const isUserChoice = userAnswer === optIdx;
-                              const isCorrectChoice = q.correctAnswer === optIdx;
+                              const isUserChoice = q.type === 'multi-mcq' 
+                                ? (userAnswer as number[]).includes(optIdx)
+                                : userAnswer === optIdx;
+                              
+                              const isCorrectChoice = q.type === 'multi-mcq'
+                                ? (q.correctAnswer as number[]).includes(optIdx)
+                                : q.correctAnswer === optIdx;
 
                               let statusClass = 'bg-white text-gray-500 border-gray-100';
                               if (isCorrectChoice) statusClass = 'bg-green-100 text-green-700 border-green-200 ring-2 ring-green-500/20';
-                              if (isUserChoice && !isCorrect) statusClass = 'bg-red-100 text-red-700 border-red-200 ring-2 ring-red-500/20';
+                              if (isUserChoice && !isCorrectChoice) statusClass = 'bg-red-100 text-red-700 border-red-200 ring-2 ring-red-500/20';
 
                               return (
                                 <div 
@@ -694,11 +1198,13 @@ export default function Quizzes({ profile }: { profile: UserProfile }) {
                                   className={`p-4 rounded-xl border text-sm font-bold flex items-center justify-between ${statusClass}`}
                                 >
                                   <div className="flex items-center gap-3">
-                                    <span className="opacity-50">{String.fromCharCode(65 + optIdx)})</span>
+                                    <span className="opacity-50">
+                                      {q.type === 'true-false' ? (optIdx === 0 ? 'T' : 'F') : String.fromCharCode(65 + optIdx)}
+                                    </span>
                                     {option}
                                   </div>
                                   {isCorrectChoice && <CheckCircle2 className="w-4 h-4 text-green-600" />}
-                                  {isUserChoice && !isCorrect && <XCircle className="w-4 h-4 text-red-600" />}
+                                  {isUserChoice && !isCorrectChoice && <XCircle className="w-4 h-4 text-red-600" />}
                                 </div>
                               );
                             })}
@@ -709,27 +1215,37 @@ export default function Quizzes({ profile }: { profile: UserProfile }) {
                               <p className="text-xs font-black text-gray-400 uppercase tracking-widest mb-2">Your Answer</p>
                               <p className="text-gray-700 font-medium whitespace-pre-wrap">{userAnswer || 'No answer provided.'}</p>
                             </div>
-                            <div className="flex items-center justify-between p-4 bg-blue-50 rounded-2xl border border-blue-100">
-                              <span className="text-sm font-bold text-blue-700">Marks Assigned:</span>
-                              <span className="text-lg font-black text-blue-700">
-                                {quizResults.status === 'pending_marking' ? 'Pending' : `${quizResults.seqMarks?.[idx] || 0} Marks`}
-                              </span>
+                            {q.type === 'short-answer' && (
+                              <div className="p-6 bg-green-50 rounded-2xl border border-green-100">
+                                <p className="text-xs font-black text-green-600 uppercase tracking-widest mb-2">Correct Answer / Keywords</p>
+                                <p className="text-green-800 font-bold">{q.correctAnswer}</p>
+                              </div>
+                            )}
+                          </div>
+                        )}
+
+                        {q.explanation && (
+                          <div className="mt-6 ml-12 p-4 bg-amber-50 rounded-xl border border-amber-100 flex gap-3">
+                            <Info className="w-5 h-5 text-amber-600 shrink-0" />
+                            <div>
+                              <p className="text-[10px] font-black text-amber-600 uppercase tracking-widest mb-1">Explanation</p>
+                              <p className="text-xs text-amber-800 font-medium leading-relaxed">{q.explanation}</p>
                             </div>
                           </div>
                         )}
                         
                         {q.type === 'mcq' && !isCorrect && (
-                        <div className="mt-6 ml-12 p-4 bg-blue-50 rounded-2xl border border-blue-100">
-                          <p className="text-xs font-black text-blue-700 uppercase tracking-widest mb-1">Correct Answer</p>
-                          <p className="text-sm font-bold text-blue-900">
-                            {String.fromCharCode(65 + q.correctAnswer)}) {q.options[q.correctAnswer]}
-                          </p>
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
+                          <div className="mt-6 ml-12 p-4 bg-blue-50 rounded-2xl border border-blue-100">
+                            <p className="text-xs font-black text-blue-700 uppercase tracking-widest mb-1">Correct Answer</p>
+                            <p className="text-sm font-bold text-blue-900">
+                              {String.fromCharCode(65 + q.correctAnswer)}) {q.options[q.correctAnswer]}
+                            </p>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
 
               <button
                 onClick={() => setActiveQuiz(null)}
@@ -922,15 +1438,27 @@ export default function Quizzes({ profile }: { profile: UserProfile }) {
                       onChange={(e) => setNewQuiz({...newQuiz, title: e.target.value})}
                     />
                   </div>
-                  <div>
-                    <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-2">Time Limit (Minutes)</label>
-                    <input 
-                      required
-                      type="number" 
-                      className="w-full px-5 py-4 bg-gray-50 border-none rounded-2xl focus:ring-2 focus:ring-blue-100 font-bold text-gray-900"
-                      value={newQuiz.timeLimit}
-                      onChange={(e) => setNewQuiz({...newQuiz, timeLimit: parseInt(e.target.value)})}
-                    />
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-2">Time Limit (Mins)</label>
+                      <input 
+                        required
+                        type="number" 
+                        className="w-full px-5 py-4 bg-gray-50 border-none rounded-2xl focus:ring-2 focus:ring-blue-100 font-bold text-gray-900"
+                        value={newQuiz.timeLimit}
+                        onChange={(e) => setNewQuiz({...newQuiz, timeLimit: parseInt(e.target.value)})}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-2">Attempts Limit</label>
+                      <input 
+                        required
+                        type="number" 
+                        className="w-full px-5 py-4 bg-gray-50 border-none rounded-2xl focus:ring-2 focus:ring-blue-100 font-bold text-gray-900"
+                        value={newQuiz.attemptsLimit}
+                        onChange={(e) => setNewQuiz({...newQuiz, attemptsLimit: parseInt(e.target.value)})}
+                      />
+                    </div>
                   </div>
                   <div>
                     <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-2">Course</label>
@@ -958,34 +1486,87 @@ export default function Quizzes({ profile }: { profile: UserProfile }) {
                   </div>
                 </div>
 
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div>
+                    <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-2">Start Time (Optional)</label>
+                    <input 
+                      type="datetime-local" 
+                      className="w-full px-5 py-4 bg-gray-50 border-none rounded-2xl focus:ring-2 focus:ring-blue-100 font-bold text-gray-900"
+                      value={newQuiz.startTime}
+                      onChange={(e) => setNewQuiz({...newQuiz, startTime: e.target.value})}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-2">End Time (Optional)</label>
+                    <input 
+                      type="datetime-local" 
+                      className="w-full px-5 py-4 bg-gray-50 border-none rounded-2xl focus:ring-2 focus:ring-blue-100 font-bold text-gray-900"
+                      value={newQuiz.endTime}
+                      onChange={(e) => setNewQuiz({...newQuiz, endTime: e.target.value})}
+                    />
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap gap-6 p-6 bg-gray-50 rounded-[2rem] border border-gray-100">
+                  <label className="flex items-center gap-3 cursor-pointer">
+                    <input 
+                      type="checkbox" 
+                      className="w-5 h-5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                      checked={newQuiz.shuffleQuestions}
+                      onChange={(e) => setNewQuiz({...newQuiz, shuffleQuestions: e.target.checked})}
+                    />
+                    <span className="text-xs font-bold text-gray-700">Shuffle Questions</span>
+                  </label>
+                  <label className="flex items-center gap-3 cursor-pointer">
+                    <input 
+                      type="checkbox" 
+                      className="w-5 h-5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                      checked={newQuiz.shuffleOptions}
+                      onChange={(e) => setNewQuiz({...newQuiz, shuffleOptions: e.target.checked})}
+                    />
+                    <span className="text-xs font-bold text-gray-700">Shuffle Options</span>
+                  </label>
+                  <label className="flex items-center gap-3 cursor-pointer">
+                    <input 
+                      type="checkbox" 
+                      className="w-5 h-5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                      checked={newQuiz.preventBacktracking}
+                      onChange={(e) => setNewQuiz({...newQuiz, preventBacktracking: e.target.checked})}
+                    />
+                    <span className="text-xs font-bold text-gray-700">Prevent Backtracking</span>
+                  </label>
+                </div>
+
                 <div className="space-y-6">
                   <div className="flex items-center justify-between">
                     <h3 className="text-lg font-black text-gray-900">Questions</h3>
-                    <div className="flex gap-3">
-                      <button 
-                        type="button"
-                        onClick={() => setIsBulkMode(!isBulkMode)}
-                        className={`text-xs font-black px-4 py-2 rounded-xl transition-all uppercase tracking-widest ${
-                          isBulkMode ? 'bg-amber-100 text-amber-700' : 'bg-gray-100 text-gray-600'
-                        }`}
-                      >
-                        {isBulkMode ? 'Cancel Bulk' : 'Bulk Import'}
-                      </button>
-                      <button 
-                        type="button"
-                        onClick={() => addQuestion('mcq')}
-                        className="bg-blue-50 text-blue-600 font-black text-[10px] px-4 py-2 rounded-xl uppercase tracking-widest hover:bg-blue-100 transition-all"
-                      >
-                        + Add MCQ
-                      </button>
-                      <button 
-                        type="button"
-                        onClick={() => addQuestion('seq')}
-                        className="bg-indigo-50 text-indigo-600 font-black text-[10px] px-4 py-2 rounded-xl uppercase tracking-widest hover:bg-indigo-100 transition-all"
-                      >
-                        + Add SEQ
-                      </button>
-                    </div>
+                      <div className="flex flex-wrap gap-3">
+                        <button 
+                          type="button"
+                          onClick={() => setIsBulkMode(!isBulkMode)}
+                          className={`text-xs font-black px-4 py-2 rounded-xl transition-all uppercase tracking-widest ${
+                            isBulkMode ? 'bg-amber-100 text-amber-700' : 'bg-gray-100 text-gray-600'
+                          }`}
+                        >
+                          {isBulkMode ? 'Cancel Bulk' : 'Bulk Import'}
+                        </button>
+                        <select 
+                          className="bg-blue-50 text-blue-600 font-black text-[10px] px-4 py-2 rounded-xl uppercase tracking-widest hover:bg-blue-100 transition-all border-none focus:ring-0"
+                          onChange={(e) => {
+                            if (e.target.value) {
+                              addQuestion(e.target.value);
+                              e.target.value = '';
+                            }
+                          }}
+                        >
+                          <option value="">+ Add Question</option>
+                          <option value="mcq">MCQ (Single)</option>
+                          <option value="multi-mcq">MCQ (Multiple)</option>
+                          <option value="true-false">True/False</option>
+                          <option value="short-answer">Short Answer</option>
+                          <option value="long-answer">Long Answer</option>
+                        </select>
+                      </div>
                   </div>
 
                   {isBulkMode ? (
@@ -1042,13 +1623,31 @@ export default function Quizzes({ profile }: { profile: UserProfile }) {
                       {newQuiz.questions.map((q, qIdx) => (
                         <div key={qIdx} className="p-6 bg-gray-50 rounded-[2rem] border border-gray-100 space-y-4 relative group">
                           <div className="flex items-start justify-between gap-4">
-                            <div className="flex-1">
-                              <div className="flex items-center gap-2 mb-2">
+                            <div className="flex-1 space-y-4">
+                              <div className="flex flex-wrap items-center gap-3">
                                 <span className={`px-2 py-1 text-[10px] font-black rounded-lg uppercase tracking-widest ${
-                                  q.type === 'mcq' ? 'bg-blue-600 text-white' : 'bg-indigo-600 text-white'
+                                  q.type.includes('mcq') ? 'bg-blue-600 text-white' : 
+                                  q.type === 'true-false' ? 'bg-green-600 text-white' :
+                                  'bg-indigo-600 text-white'
                                 }`}>
-                                  {q.type}
+                                  {q.type.replace('-', ' ')}
                                 </span>
+                                <select 
+                                  className="text-[10px] font-black bg-white border border-gray-200 rounded-lg px-2 py-1 uppercase tracking-widest"
+                                  value={q.difficulty}
+                                  onChange={(e) => updateQuestion(qIdx, 'difficulty', e.target.value)}
+                                >
+                                  <option value="easy">Easy</option>
+                                  <option value="medium">Medium</option>
+                                  <option value="hard">Hard</option>
+                                </select>
+                                <input 
+                                  type="text"
+                                  placeholder="Topic (e.g. Anatomy)"
+                                  className="text-[10px] font-black bg-white border border-gray-200 rounded-lg px-2 py-1 uppercase tracking-widest w-32"
+                                  value={q.topic}
+                                  onChange={(e) => updateQuestion(qIdx, 'topic', e.target.value)}
+                                />
                                 <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest">Question {qIdx + 1}</label>
                               </div>
                               <textarea 
@@ -1058,6 +1657,13 @@ export default function Quizzes({ profile }: { profile: UserProfile }) {
                                 placeholder="Enter question text..."
                                 value={q.question}
                                 onChange={(e) => updateQuestion(qIdx, 'question', e.target.value)}
+                              />
+                              <input 
+                                type="text"
+                                placeholder="Explanation (Optional)"
+                                className="w-full px-4 py-2 bg-white border border-gray-100 rounded-xl text-xs font-medium text-gray-600"
+                                value={q.explanation}
+                                onChange={(e) => updateQuestion(qIdx, 'explanation', e.target.value)}
                               />
                             </div>
                             <div className="flex flex-col gap-2">
@@ -1074,46 +1680,76 @@ export default function Quizzes({ profile }: { profile: UserProfile }) {
                             </div>
                           </div>
 
-                          {q.type === 'mcq' ? (
+                          {(q.type === 'mcq' || q.type === 'multi-mcq' || q.type === 'true-false') ? (
                             <div className="space-y-4">
                               <div className="flex items-center justify-between">
-                                <label className="block text-[10px] font-black text-blue-600 uppercase tracking-widest">Options (Select Correct Answer)</label>
-                                {q.correctAnswer === -1 && (
+                                <label className="block text-[10px] font-black text-blue-600 uppercase tracking-widest">
+                                  Options ({q.type === 'multi-mcq' ? 'Select All Correct' : 'Select Correct Answer'})
+                                </label>
+                                {((q.type === 'multi-mcq' && q.correctAnswer.length === 0) || (q.type !== 'multi-mcq' && q.correctAnswer === -1)) && (
                                   <span className="text-[10px] font-black text-red-500 animate-pulse">Select Answer!</span>
                                 )}
                               </div>
                               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                {q.options.map((opt, oIdx) => (
-                                  <div 
-                                    key={oIdx} 
-                                    onClick={() => updateQuestion(qIdx, 'correctAnswer', oIdx)}
-                                    className={`flex items-center gap-3 p-4 rounded-2xl border-2 cursor-pointer transition-all ${
-                                      q.correctAnswer === oIdx 
-                                        ? 'bg-green-50 border-green-500 shadow-md' 
-                                        : 'bg-white border-transparent hover:border-gray-200'
-                                    }`}
-                                  >
-                                    <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all ${
-                                      q.correctAnswer === oIdx ? 'bg-green-500 border-green-500' : 'border-gray-200'
-                                    }`}>
-                                      {q.correctAnswer === oIdx && <div className="w-2 h-2 bg-white rounded-full" />}
+                                {q.options.map((opt, oIdx) => {
+                                  const isSelected = q.type === 'multi-mcq' 
+                                    ? q.correctAnswer.includes(oIdx)
+                                    : q.correctAnswer === oIdx;
+
+                                  return (
+                                    <div 
+                                      key={oIdx} 
+                                      onClick={() => {
+                                        if (q.type === 'multi-mcq') {
+                                          const current = [...q.correctAnswer];
+                                          const index = current.indexOf(oIdx);
+                                          if (index > -1) current.splice(index, 1);
+                                          else current.push(oIdx);
+                                          updateQuestion(qIdx, 'correctAnswer', current);
+                                        } else {
+                                          updateQuestion(qIdx, 'correctAnswer', oIdx);
+                                        }
+                                      }}
+                                      className={`flex items-center gap-3 p-4 rounded-2xl border-2 cursor-pointer transition-all ${
+                                        isSelected 
+                                          ? 'bg-green-50 border-green-500 shadow-md' 
+                                          : 'bg-white border-transparent hover:border-gray-200'
+                                      }`}
+                                    >
+                                      <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all ${
+                                        isSelected ? 'bg-green-500 border-green-500' : 'border-gray-200'
+                                      }`}>
+                                        {isSelected && <div className="w-2 h-2 bg-white rounded-full" />}
+                                      </div>
+                                      <input 
+                                        required
+                                        type="text" 
+                                        className="flex-1 bg-transparent border-none p-0 focus:ring-0 font-bold text-gray-900"
+                                        placeholder={`Option ${String.fromCharCode(65 + oIdx)}`}
+                                        value={opt}
+                                        onClick={(e) => e.stopPropagation()}
+                                        onChange={(e) => updateOption(qIdx, oIdx, e.target.value)}
+                                      />
                                     </div>
-                                    <input 
-                                      required
-                                      type="text" 
-                                      className="flex-1 bg-transparent border-none p-0 focus:ring-0 font-bold text-gray-900"
-                                      placeholder={`Option ${String.fromCharCode(65 + oIdx)}`}
-                                      value={opt}
-                                      onClick={(e) => e.stopPropagation()}
-                                      onChange={(e) => updateOption(qIdx, oIdx, e.target.value)}
-                                    />
-                                  </div>
-                                ))}
+                                  );
+                                })}
                               </div>
+                            </div>
+                          ) : q.type === 'short-answer' ? (
+                            <div className="space-y-4">
+                              <label className="block text-[10px] font-black text-blue-600 uppercase tracking-widest">Correct Answer / Keywords</label>
+                              <input 
+                                type="text"
+                                className="w-full px-4 py-3 bg-white border border-gray-100 rounded-xl font-bold text-gray-900"
+                                placeholder="Enter correct answer or comma-separated keywords..."
+                                value={q.correctAnswer}
+                                onChange={(e) => updateQuestion(qIdx, 'correctAnswer', e.target.value)}
+                              />
+                              <p className="text-[10px] text-gray-400 font-medium italic">System will auto-grade based on these keywords.</p>
                             </div>
                           ) : (
                             <div className="p-4 bg-blue-50 rounded-xl border border-blue-100">
-                              <p className="text-xs font-bold text-blue-600 italic">Short Essay Question (SEQ) - Students will provide a written answer.</p>
+                              <p className="text-xs font-bold text-blue-600 italic">Long Answer Question - This will require manual marking by a teacher.</p>
                             </div>
                           )}
                         </div>
