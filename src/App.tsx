@@ -324,30 +324,33 @@ export default function App() {
     let unsubscribeProfile: (() => void) | undefined;
     let unsubscribePending: (() => void) | undefined;
 
-    const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
+    // Fallback timeout to stop loading if Firebase hangs
+    const timeout = setTimeout(() => {
+      setLoading(false);
+    }, 10000);
+
+    const unsubscribeAuth = onAuthStateChanged(auth, async (user) => {
       // Clean up previous listeners
       if (unsubscribeProfile) unsubscribeProfile();
       if (unsubscribePending) unsubscribePending();
       
       if (user) {
         setUser(user);
-        // Use onSnapshot for real-time profile updates (e.g., approval)
-        unsubscribeProfile = onSnapshot(doc(db, 'users', user.uid), (docSnap) => {
+        
+        try {
+          // Initial fetch to ensure loading stops quickly
+          const docSnap = await getDoc(doc(db, 'users', user.uid));
+          
           if (docSnap.exists()) {
             const data = docSnap.data() as UserProfile;
             setProfile(data);
             
             // If admin, listen for pending users
             if (data.role === 'admin') {
-              // Clean up previous pending listener if role changed or re-triggered
-              if (unsubscribePending) unsubscribePending();
               const q = query(collection(db, 'users'), where('status', '==', 'pending'));
               unsubscribePending = onSnapshot(q, (snapshot) => {
                 setPendingCount(snapshot.size);
               });
-            } else {
-              if (unsubscribePending) unsubscribePending();
-              setPendingCount(0);
             }
           } else {
             const isAdminEmail = user.email === "nawazidrees4323@gmail.com";
@@ -360,19 +363,30 @@ export default function App() {
               photoURL: user.photoURL || undefined,
               createdAt: Timestamp.now(),
             };
-            setDoc(doc(db, 'users', user.uid), newProfile);
+            await setDoc(doc(db, 'users', user.uid), newProfile);
             setProfile(newProfile);
           }
+          
+          // Now set up real-time listener for profile updates (e.g. approval)
+          unsubscribeProfile = onSnapshot(doc(db, 'users', user.uid), (snap) => {
+            if (snap.exists()) {
+              setProfile(snap.data() as UserProfile);
+            }
+          });
+
           setLoading(false);
-        }, (error) => {
-          console.error("Profile listener error:", error);
+          clearTimeout(timeout);
+        } catch (error) {
+          console.error("Auth setup error:", error);
           setLoading(false);
-        });
+          clearTimeout(timeout);
+        }
       } else {
         setUser(null);
         setProfile(null);
         setPendingCount(0);
         setLoading(false);
+        clearTimeout(timeout);
       }
     });
 
@@ -380,14 +394,24 @@ export default function App() {
       unsubscribeAuth();
       if (unsubscribeProfile) unsubscribeProfile();
       if (unsubscribePending) unsubscribePending();
+      clearTimeout(timeout);
     };
   }, []);
 
   if (loading) {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-[#F8F9FA]">
-        <div className="w-16 h-16 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mb-4"></div>
-        <p className="text-gray-500 font-medium animate-pulse">Loading Acuity Nursing LMS...</p>
+      <div className="min-h-screen flex flex-col items-center justify-center bg-[#F8F9FA] p-6">
+        <div className="w-16 h-16 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mb-6"></div>
+        <p className="text-gray-900 font-black text-xl mb-2 tracking-tight">Acuity Nursing LMS</p>
+        <p className="text-gray-500 font-medium animate-pulse mb-8">Initializing secure session...</p>
+        
+        {/* Fallback button if loading takes too long */}
+        <button 
+          onClick={() => window.location.reload()}
+          className="px-6 py-3 bg-white border-2 border-gray-100 rounded-2xl text-sm font-bold text-gray-500 hover:bg-gray-50 hover:text-gray-900 transition-all shadow-sm"
+        >
+          Taking too long? Reload
+        </button>
       </div>
     );
   }
