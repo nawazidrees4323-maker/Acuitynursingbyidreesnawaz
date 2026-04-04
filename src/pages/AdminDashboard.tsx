@@ -1,11 +1,13 @@
 import { useState, useEffect } from 'react';
-import { db, collection, getDocs, query, where, Timestamp } from '../lib/firebase';
+import { db, collection, onSnapshot, query, where, Timestamp } from '../lib/firebase';
 import { Users, BookOpen, Calendar, CreditCard, TrendingUp, UserCheck, UserPlus, BookCopy, ChevronRight } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, PieChart, Pie } from 'recharts';
 import { motion } from 'motion/react';
+import { Link, useNavigate } from 'react-router-dom';
 import ProfileSection from '../components/ProfileSection';
 
 export default function AdminDashboard({ profile }: { profile: any }) {
+  const navigate = useNavigate();
   const [stats, setStats] = useState({
     totalStudents: 0,
     totalTeachers: 0,
@@ -19,44 +21,57 @@ export default function AdminDashboard({ profile }: { profile: any }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const fetchStats = async () => {
-      try {
-        const usersSnap = await getDocs(collection(db, 'users'));
-        const coursesSnap = await getDocs(collection(db, 'courses'));
-        const feesSnap = await getDocs(collection(db, 'fees'));
-        const attendanceSnap = await getDocs(collection(db, 'attendance'));
+    // Real-time users listener
+    const unsubUsers = onSnapshot(collection(db, 'users'), (snapshot) => {
+      const users = snapshot.docs.map(doc => doc.data());
+      const students = users.filter(u => u.role === 'student');
+      const teachers = users.filter(u => u.role === 'teacher');
+      const pending = users.filter(u => u.status === 'pending');
+      
+      setPendingUsers(pending);
+      setStats(prev => ({
+        ...prev,
+        totalStudents: students.length,
+        totalTeachers: teachers.length
+      }));
+      setLoading(false);
+    });
 
-        const users = usersSnap.docs.map(doc => doc.data());
-        const fees = feesSnap.docs.map(doc => doc.data());
-        const attendance = attendanceSnap.docs.map(doc => doc.data());
+    // Real-time courses listener
+    const unsubCourses = onSnapshot(collection(db, 'courses'), (snapshot) => {
+      setStats(prev => ({
+        ...prev,
+        totalCourses: snapshot.size
+      }));
+    });
 
-        const students = users.filter(u => u.role === 'student');
-        const teachers = users.filter(u => u.role === 'teacher');
-        const pending = users.filter(u => u.status === 'pending');
-        
-        setPendingUsers(pending);
-        
-        const revenue = fees.filter(f => f.status === 'paid').reduce((acc, curr) => acc + (curr.amount || 0), 0);
-        
-        const presentCount = attendance.filter(a => a.status === 'present').length;
-        const avgAttendance = attendance.length > 0 ? (presentCount / attendance.length) * 100 : 0;
+    // Real-time fees listener
+    const unsubFees = onSnapshot(collection(db, 'fees'), (snapshot) => {
+      const fees = snapshot.docs.map(doc => doc.data());
+      const revenue = fees.filter(f => f.status === 'paid').reduce((acc, curr) => acc + (curr.amount || 0), 0);
+      setStats(prev => ({
+        ...prev,
+        totalRevenue: revenue
+      }));
+    });
 
-        setStats({
-          totalStudents: students.length,
-          totalTeachers: teachers.length,
-          totalCourses: coursesSnap.size,
-          activeAssignments: 0, // Placeholder
-          totalRevenue: revenue,
-          avgAttendance: Math.round(avgAttendance)
-        });
-      } catch (error) {
-        console.error('Error fetching stats:', error);
-      } finally {
-        setLoading(false);
-      }
+    // Real-time attendance listener
+    const unsubAttendance = onSnapshot(collection(db, 'attendance'), (snapshot) => {
+      const attendance = snapshot.docs.map(doc => doc.data());
+      const presentCount = attendance.filter(a => a.status === 'present').length;
+      const avgAttendance = attendance.length > 0 ? (presentCount / attendance.length) * 100 : 0;
+      setStats(prev => ({
+        ...prev,
+        avgAttendance: Math.round(avgAttendance)
+      }));
+    });
+
+    return () => {
+      unsubUsers();
+      unsubCourses();
+      unsubFees();
+      unsubAttendance();
     };
-
-    fetchStats();
   }, []);
 
   const data = [
@@ -101,23 +116,26 @@ export default function AdminDashboard({ profile }: { profile: any }) {
               <p className="text-amber-700 font-medium">There are {pendingUsers.length} new users waiting for your approval.</p>
             </div>
           </div>
-          <button 
-            onClick={() => window.location.href = '/user-management'}
+          <Link 
+            to="/users"
             className="px-8 py-3 bg-amber-600 text-white rounded-2xl font-black hover:bg-amber-700 transition-all shadow-lg shadow-amber-200 flex items-center gap-2 whitespace-nowrap"
           >
             Review Requests
             <ChevronRight className="w-5 h-5" />
-          </button>
+          </Link>
         </motion.div>
       )}
 
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-black text-gray-900">Admin Dashboard</h1>
-          <p className="text-gray-500 font-medium">Welcome back, Idrees Nawaz</p>
+          <p className="text-gray-500 font-medium">Welcome back, {profile.name}</p>
         </div>
         <div className="flex gap-3">
-          <button className="px-5 py-2.5 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 transition-all shadow-lg shadow-blue-100 flex items-center gap-2">
+          <button 
+            onClick={() => navigate('/users')}
+            className="px-5 py-2.5 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 transition-all shadow-lg shadow-blue-100 flex items-center gap-2"
+          >
             <UserPlus className="w-5 h-5" />
             Add Student
           </button>

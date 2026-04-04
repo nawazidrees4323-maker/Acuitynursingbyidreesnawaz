@@ -324,7 +324,11 @@ export default function App() {
     let unsubscribeProfile: (() => void) | undefined;
     let unsubscribePending: (() => void) | undefined;
 
-    const unsubscribeAuth = onAuthStateChanged(auth, async (user) => {
+    const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
+      // Clean up previous listeners
+      if (unsubscribeProfile) unsubscribeProfile();
+      if (unsubscribePending) unsubscribePending();
+      
       if (user) {
         setUser(user);
         // Use onSnapshot for real-time profile updates (e.g., approval)
@@ -335,10 +339,15 @@ export default function App() {
             
             // If admin, listen for pending users
             if (data.role === 'admin') {
+              // Clean up previous pending listener if role changed or re-triggered
+              if (unsubscribePending) unsubscribePending();
               const q = query(collection(db, 'users'), where('status', '==', 'pending'));
               unsubscribePending = onSnapshot(q, (snapshot) => {
                 setPendingCount(snapshot.size);
               });
+            } else {
+              if (unsubscribePending) unsubscribePending();
+              setPendingCount(0);
             }
           } else {
             const isAdminEmail = user.email === "nawazidrees4323@gmail.com";
@@ -355,14 +364,15 @@ export default function App() {
             setProfile(newProfile);
           }
           setLoading(false);
+        }, (error) => {
+          console.error("Profile listener error:", error);
+          setLoading(false);
         });
       } else {
         setUser(null);
         setProfile(null);
         setPendingCount(0);
         setLoading(false);
-        if (unsubscribeProfile) unsubscribeProfile();
-        if (unsubscribePending) unsubscribePending();
       }
     });
 

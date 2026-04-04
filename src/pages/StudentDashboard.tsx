@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { db, collection, getDocs, query, where, Timestamp } from '../lib/firebase';
+import { db, collection, onSnapshot, query, where, Timestamp } from '../lib/firebase';
 import { BookOpen, Calendar, FileText, CreditCard, CheckCircle2, Clock, AlertCircle, TrendingUp, BookMarked, BrainCircuit, Library, Info } from 'lucide-react';
 import { motion } from 'motion/react';
+import { useNavigate } from 'react-router-dom';
 import ProfileSection from '../components/ProfileSection';
 
 export default function StudentDashboard({ profile }: { profile: any }) {
+  const navigate = useNavigate();
   const [enrolledCourses, setEnrolledCourses] = useState<any[]>([]);
   const [stats, setStats] = useState({
     attendance: 0,
@@ -15,35 +17,40 @@ export default function StudentDashboard({ profile }: { profile: any }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const fetchData = async () => {
-      try {
-        const coursesSnap = await getDocs(collection(db, 'courses'));
-        const courses = coursesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-        setEnrolledCourses(courses);
+    // Real-time courses listener
+    const unsubCourses = onSnapshot(collection(db, 'courses'), (snapshot) => {
+      const courses = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setEnrolledCourses(courses);
+      setLoading(false);
+    });
 
-        const attendanceSnap = await getDocs(query(collection(db, 'attendance'), where('studentId', '==', profile.uid)));
-        const submissionsSnap = await getDocs(query(collection(db, 'submissions'), where('studentId', '==', profile.uid)));
-        const feesSnap = await getDocs(query(collection(db, 'fees'), where('studentId', '==', profile.uid)));
+    // Real-time attendance listener
+    const qAttendance = query(collection(db, 'attendance'), where('studentId', '==', profile.uid));
+    const unsubAttendance = onSnapshot(qAttendance, (snapshot) => {
+      const presentCount = snapshot.docs.filter(doc => doc.data().status === 'present').length;
+      const avgAttendance = snapshot.size > 0 ? (presentCount / snapshot.size) * 100 : 0;
+      setStats(prev => ({ ...prev, attendance: Math.round(avgAttendance) }));
+    });
 
-        const presentCount = attendanceSnap.docs.filter(doc => doc.data().status === 'present').length;
-        const avgAttendance = attendanceSnap.size > 0 ? (presentCount / attendanceSnap.size) * 100 : 0;
-        
-        const pendingFees = feesSnap.docs.filter(doc => doc.data().status === 'pending').reduce((acc, curr) => acc + curr.data().amount, 0);
+    // Real-time submissions listener
+    const qSubmissions = query(collection(db, 'submissions'), where('studentId', '==', profile.uid));
+    const unsubSubmissions = onSnapshot(qSubmissions, (snapshot) => {
+      setStats(prev => ({ ...prev, assignmentsDone: snapshot.size }));
+    });
 
-        setStats({
-          attendance: Math.round(avgAttendance),
-          assignmentsDone: submissionsSnap.size,
-          pendingFees,
-          avgGrade: 'A' // Placeholder
-        });
-      } catch (error) {
-        console.error('Error fetching student data:', error);
-      } finally {
-        setLoading(false);
-      }
+    // Real-time fees listener
+    const qFees = query(collection(db, 'fees'), where('studentId', '==', profile.uid));
+    const unsubFees = onSnapshot(qFees, (snapshot) => {
+      const pendingFees = snapshot.docs.filter(doc => doc.data().status === 'pending').reduce((acc, curr) => acc + curr.data().amount, 0);
+      setStats(prev => ({ ...prev, pendingFees }));
+    });
+
+    return () => {
+      unsubCourses();
+      unsubAttendance();
+      unsubSubmissions();
+      unsubFees();
     };
-
-    fetchData();
   }, [profile.uid]);
 
   if (loading) {
@@ -75,6 +82,7 @@ export default function StudentDashboard({ profile }: { profile: any }) {
           color="blue" 
           path="/attendance"
           value={`${stats.attendance}%`}
+          onClick={() => navigate('/attendance')}
         />
         <QuickLinkCard 
           title="Quizzes" 
@@ -82,6 +90,7 @@ export default function StudentDashboard({ profile }: { profile: any }) {
           icon={BrainCircuit} 
           color="purple" 
           path="/quizzes"
+          onClick={() => navigate('/quizzes')}
         />
         <QuickLinkCard 
           title="Library" 
@@ -89,6 +98,7 @@ export default function StudentDashboard({ profile }: { profile: any }) {
           icon={Library} 
           color="green" 
           path="/resources"
+          onClick={() => navigate('/resources')}
         />
         <QuickLinkCard 
           title="About Academy" 
@@ -96,6 +106,7 @@ export default function StudentDashboard({ profile }: { profile: any }) {
           icon={Info} 
           color="amber" 
           path="/about"
+          onClick={() => navigate('/about')}
         />
       </div>
 
@@ -181,7 +192,7 @@ export default function StudentDashboard({ profile }: { profile: any }) {
   );
 }
 
-function QuickLinkCard({ title, subtitle, icon: Icon, color, path, value }: any) {
+function QuickLinkCard({ title, subtitle, icon: Icon, color, path, value, onClick }: any) {
   const colors: any = {
     blue: 'bg-blue-50 text-blue-600 border-blue-100',
     green: 'bg-green-50 text-green-600 border-green-100',
@@ -193,7 +204,7 @@ function QuickLinkCard({ title, subtitle, icon: Icon, color, path, value }: any)
     <motion.div 
       whileHover={{ y: -5 }}
       className={`bg-white p-6 rounded-[2rem] border border-gray-100 shadow-sm flex flex-col justify-between group cursor-pointer`}
-      onClick={() => window.location.href = path}
+      onClick={onClick}
     >
       <div className="flex items-start justify-between mb-4">
         <div className={`p-4 rounded-2xl ${colors[color]}`}>

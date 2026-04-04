@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { db, collection, getDocs, setDoc, doc, deleteDoc, Timestamp, query, where } from '../lib/firebase';
+import { db, collection, onSnapshot, setDoc, doc, deleteDoc, Timestamp, query, where } from '../lib/firebase';
 import { UserPlus, Search, Edit2, Trash2, MoreVertical, CheckCircle2, XCircle, Mail, User } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -32,21 +32,18 @@ export default function UserManagement() {
     uid: ''
   });
 
-  const fetchUsers = async () => {
-    setLoading(true);
-    try {
-      const querySnapshot = await getDocs(collection(db, 'users'));
-      const usersData = querySnapshot.docs.map(doc => ({ ...doc.data(), uid: doc.id } as UserProfile & { password?: string }));
-      setUsers(usersData as any);
-    } catch (error) {
-      console.error('Error fetching users:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
   useEffect(() => {
-    fetchUsers();
+    setLoading(true);
+    const unsub = onSnapshot(collection(db, 'users'), (snapshot) => {
+      const usersData = snapshot.docs.map(doc => ({ ...doc.data(), uid: doc.id } as UserProfile & { password?: string }));
+      setUsers(usersData as any);
+      setLoading(false);
+    }, (error) => {
+      console.error('Error fetching users:', error);
+      setLoading(false);
+    });
+
+    return () => unsub();
   }, []);
 
   const handleSave = async (e: React.FormEvent) => {
@@ -70,7 +67,6 @@ export default function UserManagement() {
       setIsModalOpen(false);
       setEditingUser(null);
       setFormData({ name: '', email: '', password: '', role: 'student', status: 'approved', uid: '' });
-      fetchUsers();
     } catch (error) {
       console.error('Error saving user:', error);
     }
@@ -80,7 +76,6 @@ export default function UserManagement() {
     try {
       const userRef = doc(db, 'users', uid);
       await setDoc(userRef, { status: newStatus }, { merge: true });
-      fetchUsers();
     } catch (error) {
       console.error('Error updating status:', error);
     }
@@ -90,7 +85,6 @@ export default function UserManagement() {
     if (window.confirm('Are you sure you want to delete this user?')) {
       try {
         await deleteDoc(doc(db, 'users', uid));
-        fetchUsers();
       } catch (error) {
         console.error('Error deleting user:', error);
       }

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { db, collection, getDocs, query, where, Timestamp } from '../lib/firebase';
+import { db, collection, onSnapshot, query, where, Timestamp } from '../lib/firebase';
 import { BookOpen, Users, Calendar, FileText, TrendingUp, CheckCircle2, Clock, AlertCircle } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { motion } from 'motion/react';
@@ -16,39 +16,50 @@ export default function TeacherDashboard({ profile }: { profile: any }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const fetchData = async () => {
-      try {
-        const coursesSnap = await getDocs(query(collection(db, 'courses'), where('teacherId', '==', profile.uid)));
-        const courses = coursesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-        setAssignedCourses(courses);
+    // Real-time courses listener
+    const qCourses = query(collection(db, 'courses'), where('teacherId', '==', profile.uid));
+    const unsubCourses = onSnapshot(qCourses, (snapshot) => {
+      const courses = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setAssignedCourses(courses);
+      setLoading(false);
+    });
 
-        const assignmentsSnap = await getDocs(collection(db, 'assignments'));
-        const submissionsSnap = await getDocs(collection(db, 'submissions'));
-        const usersSnap = await getDocs(query(collection(db, 'users'), where('role', '==', 'student')));
-        const attendanceSnap = await getDocs(collection(db, 'attendance'));
+    // Real-time students listener
+    const qStudents = query(collection(db, 'users'), where('role', '==', 'student'));
+    const unsubStudents = onSnapshot(qStudents, (snapshot) => {
+      setStats(prev => ({ ...prev, totalStudents: snapshot.size }));
+    });
 
-        const myAssignments = assignmentsSnap.docs.filter(doc => courses.some(c => c.id === doc.data().courseId));
-        const mySubmissions = submissionsSnap.docs.filter(doc => myAssignments.some(a => a.id === doc.data().assignmentId));
-        const myAttendance = attendanceSnap.docs.filter(doc => courses.some(c => c.id === doc.data().courseId));
-
-        const presentCount = myAttendance.filter(a => a.data().status === 'present').length;
-        const avgAttendance = myAttendance.length > 0 ? (presentCount / myAttendance.length) * 100 : 0;
-
-        setStats({
-          totalStudents: usersSnap.size,
+    // Real-time assignments & submissions listener
+    const unsubAssignments = onSnapshot(collection(db, 'assignments'), (assignSnap) => {
+      const unsubSubmissions = onSnapshot(collection(db, 'submissions'), (subSnap) => {
+        const myAssignments = assignSnap.docs.filter(doc => assignedCourses.some(c => c.id === doc.data().courseId));
+        const mySubmissions = subSnap.docs.filter(doc => myAssignments.some(a => a.id === doc.data().assignmentId));
+        
+        setStats(prev => ({
+          ...prev,
           totalAssignments: myAssignments.length,
-          pendingSubmissions: myAssignments.length * usersSnap.size - mySubmissions.length,
-          avgAttendance: Math.round(avgAttendance)
-        });
-      } catch (error) {
-        console.error('Error fetching teacher data:', error);
-      } finally {
-        setLoading(false);
-      }
-    };
+          pendingSubmissions: Math.max(0, (myAssignments.length * stats.totalStudents) - mySubmissions.length)
+        }));
+      });
+      return () => unsubSubmissions();
+    });
 
-    fetchData();
-  }, [profile.uid]);
+    // Real-time attendance listener
+    const unsubAttendance = onSnapshot(collection(db, 'attendance'), (snapshot) => {
+      const myAttendance = snapshot.docs.filter(doc => assignedCourses.some(c => c.id === doc.data().courseId));
+      const presentCount = myAttendance.filter(a => a.data().status === 'present').length;
+      const avgAttendance = myAttendance.length > 0 ? (presentCount / myAttendance.length) * 100 : 0;
+      setStats(prev => ({ ...prev, avgAttendance: Math.round(avgAttendance) }));
+    });
+
+    return () => {
+      unsubCourses();
+      unsubStudents();
+      unsubAssignments();
+      unsubAttendance();
+    };
+  }, [profile.uid, assignedCourses.length, stats.totalStudents]);
 
   if (loading) {
     return <div className="animate-pulse space-y-8">
