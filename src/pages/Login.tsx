@@ -34,6 +34,7 @@ export default function Login() {
         });
       }
     } catch (err: any) {
+      console.error("Google Login error:", err);
       setError(err.message);
     } finally {
       setLoading(false);
@@ -62,7 +63,20 @@ export default function Login() {
         await signInWithEmailAndPassword(auth, email, password);
       }
     } catch (err: any) {
-      setError(err.message);
+      console.error("Auth error:", err.code, err.message);
+      if (err.code === 'auth/invalid-credential') {
+        setError('Invalid email or password. If you haven\'t created an account yet, please click "Register" above.');
+      } else if (err.code === 'auth/user-not-found') {
+        setError('No account found with this email. Please register first.');
+      } else if (err.code === 'auth/wrong-password') {
+        setError('Incorrect password. Please try again or use Forgot Password.');
+      } else if (err.code === 'auth/email-already-in-use') {
+        setError('This email is already registered. Please login instead.');
+      } else if (err.code === 'auth/weak-password') {
+        setError('Password should be at least 6 characters.');
+      } else {
+        setError(err.message);
+      }
     } finally {
       setLoading(false);
     }
