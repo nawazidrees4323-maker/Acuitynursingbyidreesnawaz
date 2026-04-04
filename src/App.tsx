@@ -315,6 +315,7 @@ function Layout({ user, profile, pendingCount }: { user: FirebaseUser, profile: 
 }
 
 export default function App() {
+  console.log("App component rendering...");
   const [user, setUser] = useState<FirebaseUser | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [pendingCount, setPendingCount] = useState(0);
@@ -405,7 +406,6 @@ export default function App() {
         <p className="text-gray-900 font-black text-xl mb-2 tracking-tight">Acuity Nursing LMS</p>
         <p className="text-gray-500 font-medium animate-pulse mb-8">Initializing secure session...</p>
         
-        {/* Fallback button if loading takes too long */}
         <button 
           onClick={() => window.location.reload()}
           className="px-6 py-3 bg-white border-2 border-gray-100 rounded-2xl text-sm font-bold text-gray-500 hover:bg-gray-50 hover:text-gray-900 transition-all shadow-sm"
@@ -416,31 +416,58 @@ export default function App() {
     );
   }
 
+  // Handle case where user is logged in but profile couldn't be loaded/created
+  if (user && !profile) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center bg-red-50 p-6 text-center">
+        <div className="w-20 h-20 bg-red-100 text-red-600 rounded-3xl flex items-center justify-center mb-8 shadow-lg shadow-red-100">
+          <AlertCircle className="w-10 h-10" />
+        </div>
+        <h1 className="text-3xl font-black text-gray-900 mb-4 tracking-tight">Profile Error</h1>
+        <p className="text-gray-500 mb-8 font-medium max-w-md mx-auto">
+          We couldn't load your profile information. This might be due to a connection issue or a configuration error.
+        </p>
+        <div className="flex gap-4">
+          <button 
+            onClick={() => auth.signOut()}
+            className="px-8 py-4 bg-gray-900 text-white rounded-2xl font-bold hover:bg-gray-800 transition-all"
+          >
+            Sign Out
+          </button>
+          <button 
+            onClick={() => window.location.reload()}
+            className="px-8 py-4 bg-white border-2 border-gray-100 text-gray-900 rounded-2xl font-bold hover:bg-gray-50 transition-all"
+          >
+            Try Again
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <ErrorBoundary>
       <Router>
         <Routes>
           {!user ? (
             <Route path="*" element={<Login />} />
-          ) : profile ? (
-            profile.status === 'approved' ? (
-              <Route path="/" element={<Layout user={user} profile={profile} pendingCount={pendingCount} />}>
-                <Route index element={<DashboardRouter profile={profile} />} />
-                <Route path="users" element={profile.role === 'admin' ? <UserManagement /> : <Navigate to="/" />} />
-                <Route path="courses" element={profile.role === 'admin' ? <CourseManagement /> : <Navigate to="/" />} />
-                <Route path="attendance" element={<Attendance profile={profile} />} />
-                <Route path="fees" element={(profile.role === 'admin' || profile.role === 'student') ? <FeeManagement profile={profile} /> : <Navigate to="/" />} />
-                <Route path="assignments" element={<Assignments profile={profile} />} />
-                <Route path="quizzes" element={<Quizzes profile={profile} />} />
-                <Route path="resources" element={<Resources profile={profile} />} />
+          ) : (
+            profile!.status === 'approved' ? (
+              <Route path="/" element={<Layout user={user} profile={profile!} pendingCount={pendingCount} />}>
+                <Route index element={<DashboardRouter profile={profile!} />} />
+                <Route path="users" element={profile!.role === 'admin' ? <UserManagement /> : <Navigate to="/" />} />
+                <Route path="courses" element={profile!.role === 'admin' ? <CourseManagement /> : <Navigate to="/" />} />
+                <Route path="attendance" element={<Attendance profile={profile!} />} />
+                <Route path="fees" element={(profile!.role === 'admin' || profile!.role === 'student') ? <FeeManagement profile={profile!} /> : <Navigate to="/" />} />
+                <Route path="assignments" element={<Assignments profile={profile!} />} />
+                <Route path="quizzes" element={<Quizzes profile={profile!} />} />
+                <Route path="resources" element={<Resources profile={profile!} />} />
                 <Route path="about" element={<AboutAcademy />} />
-                <Route path="notifications" element={<Notifications profile={profile} />} />
+                <Route path="notifications" element={<Notifications profile={profile!} />} />
               </Route>
             ) : (
-              <Route path="*" element={<PendingApproval profile={profile} />} />
+              <Route path="*" element={<PendingApproval profile={profile!} />} />
             )
-          ) : (
-            <Route path="*" element={<Navigate to="/" />} />
           )}
         </Routes>
       </Router>
