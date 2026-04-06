@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { db, collection, getDocs, setDoc, doc, deleteDoc, Timestamp, query, where, addDoc, onSnapshot } from '../lib/firebase';
+import { db, collection, getDocs, setDoc, doc, deleteDoc, Timestamp, query, where, addDoc, onSnapshot, handleFirestoreError, OperationType } from '../lib/firebase';
 import { 
   BrainCircuit, 
   Plus, 
@@ -375,7 +375,24 @@ export default function Quizzes({ profile }: { profile: UserProfile }) {
   const [attemptId, setAttemptId] = useState<string | null>(null);
 
   const startQuiz = async (quiz: Quiz) => {
+    if (!quiz || !quiz.id) {
+      alert('Invalid quiz data.');
+      return;
+    }
+
+    if (!profile || !profile.uid) {
+      alert('User profile not found. Please log in again.');
+      return;
+    }
+
+    if (!quiz.questions || !Array.isArray(quiz.questions)) {
+      alert('This quiz has no questions or invalid question data.');
+      return;
+    }
+
     try {
+      console.log('Starting quiz:', quiz.id, 'for user:', profile.uid);
+      
       // Check for existing attempt
       const q = query(
         collection(db, 'quiz_attempts'),
@@ -383,16 +400,28 @@ export default function Quizzes({ profile }: { profile: UserProfile }) {
         where('studentId', '==', profile.uid),
         where('status', '==', 'in-progress')
       );
-      const snapshot = await getDocs(q);
+      
+      let snapshot;
+      try {
+        snapshot = await getDocs(q);
+      } catch (err: any) {
+        console.error('Error fetching existing attempt:', err);
+        if (err.message.includes('index')) {
+          alert('Database index is being created. Please wait a few minutes and try again.');
+          return;
+        }
+        throw new Error(`Failed to check existing attempts: ${err.message}`);
+      }
       
       let currentAttempt;
       if (!snapshot.empty) {
         currentAttempt = { id: snapshot.docs[0].id, ...snapshot.docs[0].data() } as any;
-        setAnswers(currentAttempt.answers);
+        setAnswers(currentAttempt.answers || []);
         setCheatingWarnings(currentAttempt.cheatingWarnings || 0);
         setAttemptId(currentAttempt.id);
         
-        const elapsed = Math.floor((Timestamp.now().toMillis() - currentAttempt.startTime.toMillis()) / 1000);
+        const startTime = currentAttempt.startTime?.toMillis() || Timestamp.now().toMillis();
+        const elapsed = Math.floor((Timestamp.now().toMillis() - startTime) / 1000);
         const remaining = (quiz.timeLimit * 60) - elapsed;
         setTimeLeft(remaining > 0 ? remaining : 0);
       } else {
@@ -403,9 +432,17 @@ export default function Quizzes({ profile }: { profile: UserProfile }) {
           where('studentId', '==', profile.uid),
           where('status', '==', 'completed')
         );
-        const completedSnapshot = await getDocs(completedQ);
+        
+        let completedSnapshot;
+        try {
+          completedSnapshot = await getDocs(completedQ);
+        } catch (err: any) {
+          console.error('Error fetching completed attempts:', err);
+          throw new Error(`Failed to check attempts limit: ${err.message}`);
+        }
+
         if (completedSnapshot.size >= quiz.attemptsLimit) {
-          alert('You have reached the maximum number of attempts for this quiz.');
+          alert(`You have reached the maximum number of attempts (${quiz.attemptsLimit}) for this quiz.`);
           return;
         }
 
@@ -428,11 +465,17 @@ export default function Quizzes({ profile }: { profile: UserProfile }) {
           deviceInfo: navigator.userAgent,
           ipAddress: 'Unknown'
         };
-        const docRef = await addDoc(collection(db, 'quiz_attempts'), newAttempt);
-        setAttemptId(docRef.id);
-        setAnswers(newAttempt.answers);
-        setCheatingWarnings(0);
-        setTimeLeft(quiz.timeLimit * 60);
+        
+        try {
+          const docRef = await addDoc(collection(db, 'quiz_attempts'), newAttempt);
+          setAttemptId(docRef.id);
+          setAnswers(newAttempt.answers);
+          setCheatingWarnings(0);
+          setTimeLeft(quiz.timeLimit * 60);
+        } catch (err: any) {
+          console.error('Error creating new attempt:', err);
+          throw new Error(`Failed to create new attempt: ${err.message}`);
+        }
       }
 
       setActiveQuiz(quiz);
@@ -451,8 +494,11 @@ export default function Quizzes({ profile }: { profile: UserProfile }) {
       console.error('Error starting quiz:', error);
       if (error.message.includes('Missing or insufficient permissions')) {
         alert('Permission denied. Please ensure you are logged in and approved.');
+        try {
+          handleFirestoreError(error, OperationType.WRITE, 'quiz_attempts');
+        } catch (e) {}
       } else {
-        alert('Failed to start quiz. Please try again.');
+        alert(`Failed to start quiz: ${error.message || 'Unknown error'}`);
       }
     }
   };
