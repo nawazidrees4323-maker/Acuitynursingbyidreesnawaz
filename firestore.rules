@@ -198,6 +198,18 @@ service cloud.firestore {
       allow write: if isAdmin() || isTeacher();
     }
 
+    match /quiz_attempts/{attemptId} {
+      allow read: if isApproved() && (request.auth.uid == resource.data.studentId || isAdmin() || isTeacher());
+      allow create: if isApproved() && request.auth.uid == request.resource.data.studentId;
+      allow update: if isApproved() && (request.auth.uid == resource.data.studentId || isAdmin() || isTeacher());
+      allow delete: if isAdmin();
+    }
+
+    match /question_bank/{questionId} {
+      allow read: if isApproved();
+      allow write: if isAdmin() || isTeacher();
+    }
+
     match /quiz_results/{resultId} {
       allow read: if isApproved();
       allow create: if isApproved() && request.auth.uid == request.resource.data.studentId;

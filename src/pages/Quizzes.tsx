@@ -4,6 +4,7 @@ import {
   BrainCircuit, 
   Plus, 
   Trash2, 
+  Pencil,
   Clock, 
   CheckCircle2, 
   XCircle, 
@@ -103,6 +104,7 @@ export default function Quizzes({ profile }: { profile: UserProfile }) {
   const [showLeaderboard, setShowLeaderboard] = useState(false);
   const [markingResult, setMarkingResult] = useState<any>(null);
   const [seqMarks, setSeqMarks] = useState<number[]>([]);
+  const [editingQuiz, setEditingQuiz] = useState<Quiz | null>(null);
 
   const isAdmin = profile.role === 'admin';
   const isTeacher = profile.role === 'teacher';
@@ -255,23 +257,30 @@ export default function Quizzes({ profile }: { profile: UserProfile }) {
         ...newQuiz,
         startTime: newQuiz.startTime ? Timestamp.fromDate(new Date(newQuiz.startTime)) : null,
         endTime: newQuiz.endTime ? Timestamp.fromDate(new Date(newQuiz.endTime)) : null,
-        createdAt: Timestamp.now(),
-        createdBy: profile.uid
+        updatedAt: Timestamp.now(),
+        createdBy: editingQuiz ? editingQuiz.createdBy : profile.uid,
+        ...(editingQuiz ? {} : { createdAt: Timestamp.now() })
       };
-      await addDoc(collection(db, 'quizzes'), quizData);
-      
-      // Also add questions to Question Bank
-      for (const q of newQuiz.questions) {
-        await addDoc(collection(db, 'question_bank'), {
-          ...q,
-          courseId: newQuiz.courseId,
-          subjectId: newQuiz.subjectId,
-          createdAt: Timestamp.now(),
-          createdBy: profile.uid
-        });
+
+      if (editingQuiz) {
+        await setDoc(doc(db, 'quizzes', editingQuiz.id), quizData);
+      } else {
+        await addDoc(collection(db, 'quizzes'), quizData);
+        
+        // Also add questions to Question Bank (only for new quizzes to avoid duplicates)
+        for (const q of newQuiz.questions) {
+          await addDoc(collection(db, 'question_bank'), {
+            ...q,
+            courseId: newQuiz.courseId,
+            subjectId: newQuiz.subjectId,
+            createdAt: Timestamp.now(),
+            createdBy: profile.uid
+          });
+        }
       }
 
       setIsModalOpen(false);
+      setEditingQuiz(null);
       setNewQuiz({
         title: '',
         courseId: '',
@@ -296,8 +305,27 @@ export default function Quizzes({ profile }: { profile: UserProfile }) {
       });
       fetchQuizzes();
     } catch (error) {
-      console.error('Error creating quiz:', error);
+      console.error('Error saving quiz:', error);
+      alert('Failed to save quiz. Please check your connection and try again.');
     }
+  };
+
+  const handleEditQuiz = (quiz: Quiz) => {
+    setEditingQuiz(quiz);
+    setNewQuiz({
+      title: quiz.title,
+      courseId: quiz.courseId,
+      subjectId: quiz.subjectId,
+      timeLimit: quiz.timeLimit,
+      attemptsLimit: quiz.attemptsLimit,
+      startTime: quiz.startTime ? new Date(quiz.startTime.toMillis()).toISOString().slice(0, 16) : '',
+      endTime: quiz.endTime ? new Date(quiz.endTime.toMillis()).toISOString().slice(0, 16) : '',
+      shuffleQuestions: quiz.shuffleQuestions,
+      shuffleOptions: quiz.shuffleOptions,
+      preventBacktracking: quiz.preventBacktracking,
+      questions: quiz.questions
+    });
+    setIsModalOpen(true);
   };
 
   const handleDeleteQuiz = async (id: string) => {
@@ -347,76 +375,85 @@ export default function Quizzes({ profile }: { profile: UserProfile }) {
   const [attemptId, setAttemptId] = useState<string | null>(null);
 
   const startQuiz = async (quiz: Quiz) => {
-    // Check for existing attempt
-    const q = query(
-      collection(db, 'quiz_attempts'),
-      where('quizId', '==', quiz.id),
-      where('studentId', '==', profile.uid),
-      where('status', '==', 'in-progress')
-    );
-    const snapshot = await getDocs(q);
-    
-    let currentAttempt;
-    if (!snapshot.empty) {
-      currentAttempt = { id: snapshot.docs[0].id, ...snapshot.docs[0].data() } as any;
-      setAnswers(currentAttempt.answers);
-      setCheatingWarnings(currentAttempt.cheatingWarnings || 0);
-      setAttemptId(currentAttempt.id);
-      
-      const elapsed = Math.floor((Timestamp.now().toMillis() - currentAttempt.startTime.toMillis()) / 1000);
-      const remaining = (quiz.timeLimit * 60) - elapsed;
-      setTimeLeft(remaining > 0 ? remaining : 0);
-    } else {
-      // Check attempts limit
-      const completedQ = query(
+    try {
+      // Check for existing attempt
+      const q = query(
         collection(db, 'quiz_attempts'),
         where('quizId', '==', quiz.id),
         where('studentId', '==', profile.uid),
-        where('status', '==', 'completed')
+        where('status', '==', 'in-progress')
       );
-      const completedSnapshot = await getDocs(completedQ);
-      if (completedSnapshot.size >= quiz.attemptsLimit) {
-        alert('You have reached the maximum number of attempts for this quiz.');
-        return;
+      const snapshot = await getDocs(q);
+      
+      let currentAttempt;
+      if (!snapshot.empty) {
+        currentAttempt = { id: snapshot.docs[0].id, ...snapshot.docs[0].data() } as any;
+        setAnswers(currentAttempt.answers);
+        setCheatingWarnings(currentAttempt.cheatingWarnings || 0);
+        setAttemptId(currentAttempt.id);
+        
+        const elapsed = Math.floor((Timestamp.now().toMillis() - currentAttempt.startTime.toMillis()) / 1000);
+        const remaining = (quiz.timeLimit * 60) - elapsed;
+        setTimeLeft(remaining > 0 ? remaining : 0);
+      } else {
+        // Check attempts limit
+        const completedQ = query(
+          collection(db, 'quiz_attempts'),
+          where('quizId', '==', quiz.id),
+          where('studentId', '==', profile.uid),
+          where('status', '==', 'completed')
+        );
+        const completedSnapshot = await getDocs(completedQ);
+        if (completedSnapshot.size >= quiz.attemptsLimit) {
+          alert('You have reached the maximum number of attempts for this quiz.');
+          return;
+        }
+
+        const newAttempt = {
+          quizId: quiz.id,
+          quizTitle: quiz.title,
+          studentId: profile.uid,
+          studentName: profile.name,
+          answers: quiz.questions.map(q => {
+            if (q.type === 'multi-mcq') return [];
+            if (q.type === 'true-false') return -1;
+            if (q.type === 'mcq') return -1;
+            return '';
+          }),
+          startTime: Timestamp.now(),
+          lastUpdated: Timestamp.now(),
+          status: 'in-progress',
+          timeSpent: 0,
+          cheatingWarnings: 0,
+          deviceInfo: navigator.userAgent,
+          ipAddress: 'Unknown'
+        };
+        const docRef = await addDoc(collection(db, 'quiz_attempts'), newAttempt);
+        setAttemptId(docRef.id);
+        setAnswers(newAttempt.answers);
+        setCheatingWarnings(0);
+        setTimeLeft(quiz.timeLimit * 60);
       }
 
-      const newAttempt = {
-        quizId: quiz.id,
-        quizTitle: quiz.title,
-        studentId: profile.uid,
-        studentName: profile.name,
-        answers: quiz.questions.map(q => {
-          if (q.type === 'multi-mcq') return [];
-          if (q.type === 'true-false') return -1;
-          if (q.type === 'mcq') return -1;
-          return '';
-        }),
-        startTime: Timestamp.now(),
-        lastUpdated: Timestamp.now(),
-        status: 'in-progress',
-        timeSpent: 0,
-        cheatingWarnings: 0,
-        deviceInfo: navigator.userAgent,
-        ipAddress: 'Unknown' // IP would normally be handled server-side
-      };
-      const docRef = await addDoc(collection(db, 'quiz_attempts'), newAttempt);
-      setAttemptId(docRef.id);
-      setAnswers(newAttempt.answers);
-      setCheatingWarnings(0);
-      setTimeLeft(quiz.timeLimit * 60);
-    }
+      setActiveQuiz(quiz);
+      setCurrentQuestionIndex(0);
+      setQuizResults(null);
 
-    setActiveQuiz(quiz);
-    setCurrentQuestionIndex(0);
-    setQuizResults(null);
-
-    // Enforce Fullscreen
-    try {
-      if (document.documentElement.requestFullscreen) {
-        await document.documentElement.requestFullscreen();
+      // Enforce Fullscreen
+      try {
+        if (document.documentElement.requestFullscreen) {
+          await document.documentElement.requestFullscreen();
+        }
+      } catch (err) {
+        console.warn('Fullscreen request failed:', err);
       }
-    } catch (err) {
-      console.warn('Fullscreen request failed:', err);
+    } catch (error: any) {
+      console.error('Error starting quiz:', error);
+      if (error.message.includes('Missing or insufficient permissions')) {
+        alert('Permission denied. Please ensure you are logged in and approved.');
+      } else {
+        alert('Failed to start quiz. Please try again.');
+      }
     }
   };
 
@@ -643,7 +680,32 @@ export default function Quizzes({ profile }: { profile: UserProfile }) {
           </button>
           {(profile.role === 'admin' || profile.role === 'teacher') && (
             <button 
-              onClick={() => setIsModalOpen(true)}
+              onClick={() => {
+                setEditingQuiz(null);
+                setNewQuiz({
+                  title: '',
+                  courseId: '',
+                  subjectId: '',
+                  timeLimit: 30,
+                  attemptsLimit: 1,
+                  startTime: '',
+                  endTime: '',
+                  shuffleQuestions: false,
+                  shuffleOptions: false,
+                  preventBacktracking: false,
+                  questions: [{ 
+                    id: Math.random().toString(36).substr(2, 9),
+                    question: '', 
+                    options: ['', '', '', ''], 
+                    correctAnswer: -1, 
+                    type: 'mcq',
+                    difficulty: 'medium',
+                    topic: '',
+                    explanation: ''
+                  }]
+                });
+                setIsModalOpen(true);
+              }}
               className="px-6 py-3 bg-blue-600 text-white rounded-2xl font-black shadow-lg shadow-blue-100 hover:bg-blue-700 transition-all flex items-center justify-center gap-2"
             >
               <Plus className="w-5 h-5" />
@@ -1282,12 +1344,22 @@ export default function Quizzes({ profile }: { profile: UserProfile }) {
                     <ListChecks className="w-7 h-7" />
                   </div>
                   {(profile.role === 'admin' || profile.role === 'teacher') && (
-                    <button 
-                      onClick={() => handleDeleteQuiz(quiz.id)}
-                      className="p-2 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all"
-                    >
-                      <Trash2 className="w-5 h-5" />
-                    </button>
+                    <div className="flex gap-2">
+                      <button 
+                        onClick={() => handleEditQuiz(quiz)}
+                        className="p-2 text-gray-300 hover:text-blue-500 hover:bg-blue-50 rounded-xl transition-all"
+                        title="Edit Quiz"
+                      >
+                        <Pencil className="w-5 h-5" />
+                      </button>
+                      <button 
+                        onClick={() => handleDeleteQuiz(quiz.id)}
+                        className="p-2 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all"
+                        title="Delete Quiz"
+                      >
+                        <Trash2 className="w-5 h-5" />
+                      </button>
+                    </div>
                   )}
                 </div>
                 
@@ -1419,8 +1491,13 @@ export default function Quizzes({ profile }: { profile: UserProfile }) {
               className="bg-white w-full max-w-4xl rounded-[2.5rem] shadow-2xl overflow-hidden my-8"
             >
               <div className="p-8 border-b border-gray-100 flex items-center justify-between sticky top-0 bg-white z-10">
-                <h2 className="text-2xl font-black text-gray-900 tracking-tight">Create New Quiz</h2>
-                <button onClick={() => setIsModalOpen(false)} className="p-2 hover:bg-gray-100 rounded-xl text-gray-400">
+                <h2 className="text-2xl font-black text-gray-900 tracking-tight">
+                  {editingQuiz ? 'Edit Quiz' : 'Create New Quiz'}
+                </h2>
+                <button onClick={() => {
+                  setIsModalOpen(false);
+                  setEditingQuiz(null);
+                }} className="p-2 hover:bg-gray-100 rounded-xl text-gray-400">
                   <XCircle className="w-6 h-6" />
                 </button>
               </div>
@@ -1771,7 +1848,7 @@ export default function Quizzes({ profile }: { profile: UserProfile }) {
                     className="flex-[2] py-4 bg-blue-600 text-white rounded-2xl font-black hover:bg-blue-700 transition-all shadow-lg shadow-blue-100 flex items-center justify-center gap-2"
                   >
                     <Save className="w-5 h-5" />
-                    Save Quiz
+                    {editingQuiz ? 'Update Quiz' : 'Save Quiz'}
                   </button>
                 </div>
               </form>
