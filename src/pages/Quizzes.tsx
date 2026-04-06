@@ -416,7 +416,19 @@ export default function Quizzes({ profile }: { profile: UserProfile }) {
       let currentAttempt;
       if (!snapshot.empty) {
         currentAttempt = { id: snapshot.docs[0].id, ...snapshot.docs[0].data() } as any;
-        setAnswers(currentAttempt.answers || []);
+        
+        // Parse answers if they are stored as a string
+        let parsedAnswers = [];
+        try {
+          parsedAnswers = typeof currentAttempt.answers === 'string' 
+            ? JSON.parse(currentAttempt.answers) 
+            : (currentAttempt.answers || []);
+        } catch (e) {
+          console.error('Error parsing answers:', e);
+          parsedAnswers = [];
+        }
+        
+        setAnswers(parsedAnswers);
         setCheatingWarnings(currentAttempt.cheatingWarnings || 0);
         setAttemptId(currentAttempt.id);
         
@@ -446,17 +458,20 @@ export default function Quizzes({ profile }: { profile: UserProfile }) {
           return;
         }
 
+        const initialAnswers = quiz.questions.map(q => {
+          if (q.type === 'multi-mcq') return [];
+          if (q.type === 'true-false') return -1;
+          if (q.type === 'mcq') return -1;
+          return '';
+        });
+
         const newAttempt = {
           quizId: quiz.id,
           quizTitle: quiz.title,
           studentId: profile.uid,
           studentName: profile.name,
-          answers: quiz.questions.map(q => {
-            if (q.type === 'multi-mcq') return [];
-            if (q.type === 'true-false') return -1;
-            if (q.type === 'mcq') return -1;
-            return '';
-          }),
+          // Stringify answers to avoid "Nested arrays are not supported" error
+          answers: JSON.stringify(initialAnswers),
           startTime: Timestamp.now(),
           lastUpdated: Timestamp.now(),
           status: 'in-progress',
@@ -469,7 +484,7 @@ export default function Quizzes({ profile }: { profile: UserProfile }) {
         try {
           const docRef = await addDoc(collection(db, 'quiz_attempts'), newAttempt);
           setAttemptId(docRef.id);
-          setAnswers(newAttempt.answers);
+          setAnswers(initialAnswers);
           setCheatingWarnings(0);
           setTimeLeft(quiz.timeLimit * 60);
         } catch (err: any) {
@@ -509,7 +524,7 @@ export default function Quizzes({ profile }: { profile: UserProfile }) {
       const saveAnswers = async () => {
         try {
           await setDoc(doc(db, 'quiz_attempts', attemptId), {
-            answers,
+            answers: JSON.stringify(answers),
             lastUpdated: Timestamp.now(),
             cheatingWarnings
           }, { merge: true });
@@ -622,11 +637,16 @@ export default function Quizzes({ profile }: { profile: UserProfile }) {
     try {
       await setDoc(doc(db, 'quiz_attempts', attemptId), {
         ...resultData,
+        answers: JSON.stringify(answers),
+        userAnswers: JSON.stringify(answers),
         status: 'completed'
       }, { merge: true });
       
       // Also save to quiz_results for backward compatibility and analytics
-      await addDoc(collection(db, 'quiz_results'), resultData);
+      await addDoc(collection(db, 'quiz_results'), {
+        ...resultData,
+        userAnswers: JSON.stringify(answers)
+      });
       
       setQuizResults(resultData);
     } catch (error) {
@@ -1265,7 +1285,11 @@ export default function Quizzes({ profile }: { profile: UserProfile }) {
                 </div>
 
                 {quizResults.questions.map((q: any, idx: number) => {
-                  const userAnswer = quizResults.userAnswers[idx];
+                  // Parse userAnswers if it's a string (new format)
+                  const userAnswers = typeof quizResults.userAnswers === 'string' 
+                    ? JSON.parse(quizResults.userAnswers) 
+                    : quizResults.userAnswers;
+                  const userAnswer = userAnswers[idx];
                   const isCorrect = userAnswer === q.correctAnswer;
 
                   return (
@@ -1455,7 +1479,13 @@ export default function Quizzes({ profile }: { profile: UserProfile }) {
               </div>
               
               <div className="p-8 space-y-8 max-h-[70vh] overflow-y-auto custom-scrollbar">
-                {markingResult.questions.map((q: any, idx: number) => (
+                {markingResult.questions.map((q: any, idx: number) => {
+                  // Parse userAnswers if it's a string
+                  const userAnswers = typeof markingResult.userAnswers === 'string'
+                    ? JSON.parse(markingResult.userAnswers)
+                    : markingResult.userAnswers;
+                  
+                  return (
                   <div key={idx} className="p-6 bg-gray-50 rounded-[2rem] border border-gray-100 space-y-4">
                     <div className="flex items-start justify-between gap-4">
                       <div className="flex-1">
@@ -1470,19 +1500,19 @@ export default function Quizzes({ profile }: { profile: UserProfile }) {
                         {q.type === 'mcq' ? (
                           <div className="p-4 bg-white rounded-xl border border-gray-100">
                             <p className="text-sm font-bold text-gray-600">
-                              Student Answer: {String.fromCharCode(65 + markingResult.userAnswers[idx])}) {q.options[markingResult.userAnswers[idx]]}
+                              Student Answer: {String.fromCharCode(65 + userAnswers[idx])}) {q.options[userAnswers[idx]]}
                             </p>
                             <p className={`text-xs font-black mt-2 uppercase tracking-widest ${
-                              markingResult.userAnswers[idx] === q.correctAnswer ? 'text-green-600' : 'text-red-600'
+                              userAnswers[idx] === q.correctAnswer ? 'text-green-600' : 'text-red-600'
                             }`}>
-                              {markingResult.userAnswers[idx] === q.correctAnswer ? 'Correct (+1)' : 'Incorrect (0)'}
+                              {userAnswers[idx] === q.correctAnswer ? 'Correct (+1)' : 'Incorrect (0)'}
                             </p>
                           </div>
                         ) : (
                           <div className="space-y-4">
                             <div className="p-6 bg-white rounded-2xl border border-gray-100">
                               <p className="text-xs font-black text-gray-400 uppercase tracking-widest mb-2">Student's Answer</p>
-                              <p className="text-gray-700 font-medium whitespace-pre-wrap">{markingResult.userAnswers[idx] || 'No answer provided.'}</p>
+                              <p className="text-gray-700 font-medium whitespace-pre-wrap">{userAnswers[idx] || 'No answer provided.'}</p>
                             </div>
                             <div>
                               <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Assign Marks (0-1)</label>
@@ -1505,7 +1535,8 @@ export default function Quizzes({ profile }: { profile: UserProfile }) {
                       </div>
                     </div>
                   </div>
-                ))}
+                );
+              })}
               </div>
 
               <div className="p-8 border-t border-gray-100 flex gap-4">
