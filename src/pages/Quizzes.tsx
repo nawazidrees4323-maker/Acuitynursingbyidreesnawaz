@@ -22,6 +22,7 @@ import {
   LayoutDashboard,
   Search,
   AlertCircle,
+  Trophy,
   BookOpen
 } from 'lucide-react';
 import { 
@@ -100,6 +101,8 @@ export default function Quizzes({ profile }: { profile: UserProfile }) {
   const [activeQuiz, setActiveQuiz] = useState<Quiz | null>(null);
   const [quizResults, setQuizResults] = useState<any>(null);
   const [allResults, setAllResults] = useState<any[]>([]);
+  const [allAttempts, setAllAttempts] = useState<any[]>([]);
+  const [selectedAnalyticsQuizId, setSelectedAnalyticsQuizId] = useState<string | 'all'>('all');
   const [showAnalytics, setShowAnalytics] = useState(false);
   const [showLeaderboard, setShowLeaderboard] = useState(false);
   const [markingResult, setMarkingResult] = useState<any>(null);
@@ -236,6 +239,8 @@ export default function Quizzes({ profile }: { profile: UserProfile }) {
     fetchSubjects();
     
     let unsubscribeResults: (() => void) | undefined;
+    let unsubscribeAttempts: (() => void) | undefined;
+    
     if (profile.status === 'approved') {
       // Use onSnapshot for real-time analytics and leaderboard updates
       const resultsQuery = query(collection(db, 'quiz_results'));
@@ -251,10 +256,20 @@ export default function Quizzes({ profile }: { profile: UserProfile }) {
       }, (error) => {
         console.error('Error fetching results:', error);
       });
+
+      // Fetch attempts to track dropouts
+      const attemptsQuery = query(collection(db, 'quiz_attempts'));
+      unsubscribeAttempts = onSnapshot(attemptsQuery, (snapshot) => {
+        const attempts = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        setAllAttempts(attempts);
+      }, (error) => {
+        console.error('Error fetching attempts:', error);
+      });
     }
 
     return () => {
       if (unsubscribeResults) unsubscribeResults();
+      if (unsubscribeAttempts) unsubscribeAttempts();
     };
   }, [profile.role]);
 
@@ -263,6 +278,11 @@ export default function Quizzes({ profile }: { profile: UserProfile }) {
     try {
       const querySnapshot = await getDocs(collection(db, 'quizzes'));
       const quizzesData = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Quiz));
+      quizzesData.sort((a, b) => {
+        const dateA = a.startTime?.toDate().getTime() || 0;
+        const dateB = b.startTime?.toDate().getTime() || 0;
+        return dateB - dateA;
+      });
       setQuizzes(quizzesData);
     } catch (error) {
       console.error('Error fetching quizzes:', error);
@@ -755,6 +775,37 @@ export default function Quizzes({ profile }: { profile: UserProfile }) {
       .slice(0, 10);
   };
 
+  const getAnalyticsData = () => {
+    const filteredResults = selectedAnalyticsQuizId === 'all' 
+      ? allResults 
+      : allResults.filter(r => r.quizId === selectedAnalyticsQuizId);
+
+    const filteredAttempts = selectedAnalyticsQuizId === 'all'
+      ? allAttempts
+      : allAttempts.filter(a => a.quizId === selectedAnalyticsQuizId);
+
+    const dropouts = filteredAttempts.filter(a => a.status === 'in-progress');
+    
+    const stats = {
+      total: filteredResults.length + dropouts.length,
+      completed: filteredResults.length,
+      dropped: dropouts.length,
+      avgScore: filteredResults.length > 0 
+        ? Math.round(filteredResults.reduce((acc, r) => acc + r.percentage, 0) / filteredResults.length)
+        : 0,
+      highestScore: filteredResults.length > 0
+        ? Math.max(...filteredResults.map(r => r.percentage))
+        : 0
+    };
+
+    const toppers = [...new Set(filteredResults
+      .filter(r => r.percentage === stats.highestScore && stats.highestScore > 0)
+      .map(r => r.studentName))];
+
+    return { filteredResults, dropouts, stats, toppers };
+  };
+
+  const analyticsData = getAnalyticsData();
   const topScorers = getTopScorers();
 
   return (
@@ -779,8 +830,13 @@ export default function Quizzes({ profile }: { profile: UserProfile }) {
           </button>
           <button 
             onClick={() => {
-              setShowAnalytics(!showAnalytics);
+              const nextState = !showAnalytics;
+              setShowAnalytics(nextState);
               setShowLeaderboard(false);
+              if (nextState && selectedAnalyticsQuizId === 'all' && quizzes.length > 0) {
+                // Default to latest quiz
+                setSelectedAnalyticsQuizId(quizzes[0].id);
+              }
             }}
             className={`px-6 py-3 rounded-2xl font-bold transition-all flex items-center justify-center gap-2 ${
               showAnalytics ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
@@ -1078,31 +1134,101 @@ export default function Quizzes({ profile }: { profile: UserProfile }) {
           </div>
         </div>
       ) : showAnalytics ? (
-        <div className="bg-white rounded-[2.5rem] border border-gray-100 overflow-hidden shadow-sm">
-          <div className="p-8 border-b border-gray-100">
-            <h2 className="text-xl font-black text-gray-900">Quiz Analytics</h2>
-            <p className="text-sm text-gray-500 font-medium">Track student performance across all quizzes</p>
+        <div className="space-y-8">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 bg-white p-8 rounded-[2.5rem] border border-gray-100 shadow-sm">
+            <div>
+              <h2 className="text-2xl font-black text-gray-900 mb-1">Quiz Analytics</h2>
+              <p className="text-sm text-gray-500 font-medium">Detailed performance breakdown by quiz</p>
+            </div>
+            <div className="flex items-center gap-4">
+              <span className="text-xs font-black text-gray-400 uppercase tracking-widest">Select Quiz:</span>
+              <select 
+                value={selectedAnalyticsQuizId}
+                onChange={(e) => setSelectedAnalyticsQuizId(e.target.value)}
+                className="px-6 py-3 bg-gray-50 border-none rounded-2xl font-bold text-gray-900 focus:ring-2 focus:ring-blue-100 min-w-[250px]"
+              >
+                <option value="all">All Quizzes</option>
+                {quizzes.map(q => (
+                  <option key={q.id} value={q.id}>{q.title}</option>
+                ))}
+              </select>
+            </div>
           </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse">
-              <thead>
-                <tr className="bg-gray-50">
-                  <th className="px-8 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest">Student</th>
-                  <th className="px-8 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest">Quiz</th>
-                  <th className="px-8 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest">Score</th>
-                  <th className="px-8 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest">Percentage</th>
-                  <th className="px-8 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest">Status</th>
-                  <th className="px-8 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest">Date</th>
-                  <th className="px-8 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest text-right">Action</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {allResults.length === 0 ? (
-                  <tr>
-                    <td colSpan={5} className="px-8 py-12 text-center text-gray-400 font-medium">No results recorded yet.</td>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6">
+            <div className="bg-white p-6 rounded-[2rem] border border-gray-100 shadow-sm">
+              <div className="w-10 h-10 bg-blue-50 text-blue-600 rounded-xl flex items-center justify-center mb-4">
+                <Users className="w-5 h-5" />
+              </div>
+              <p className="text-2xl font-black text-gray-900">{analyticsData.stats.total}</p>
+              <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Total Attempts</p>
+            </div>
+            <div className="bg-white p-6 rounded-[2rem] border border-gray-100 shadow-sm">
+              <div className="w-10 h-10 bg-green-50 text-green-600 rounded-xl flex items-center justify-center mb-4">
+                <ListChecks className="w-5 h-5" />
+              </div>
+              <p className="text-2xl font-black text-gray-900">{analyticsData.stats.completed}</p>
+              <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Completed</p>
+            </div>
+            <div className="bg-white p-6 rounded-[2rem] border border-gray-100 shadow-sm">
+              <div className="w-10 h-10 bg-red-50 text-red-600 rounded-xl flex items-center justify-center mb-4">
+                <AlertCircle className="w-5 h-5" />
+              </div>
+              <p className="text-2xl font-black text-gray-900">{analyticsData.stats.dropped}</p>
+              <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Dropped/In-Progress</p>
+            </div>
+            <div className="bg-white p-6 rounded-[2rem] border border-gray-100 shadow-sm">
+              <div className="w-10 h-10 bg-amber-50 text-amber-600 rounded-xl flex items-center justify-center mb-4">
+                <TrendingUp className="w-5 h-5" />
+              </div>
+              <p className="text-2xl font-black text-gray-900">{analyticsData.stats.avgScore}%</p>
+              <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Average Score</p>
+            </div>
+            <div className="bg-white p-6 rounded-[2rem] border border-gray-100 shadow-sm">
+              <div className="w-10 h-10 bg-purple-50 text-purple-600 rounded-xl flex items-center justify-center mb-4">
+                <Trophy className="w-5 h-5" />
+              </div>
+              <p className="text-2xl font-black text-gray-900">{analyticsData.stats.highestScore}%</p>
+              <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Highest Score</p>
+            </div>
+          </div>
+
+          {analyticsData.toppers.length > 0 && (
+            <div className="bg-gradient-to-r from-amber-50 to-orange-50 p-8 rounded-[2.5rem] border border-amber-100 flex items-center gap-6">
+              <div className="w-16 h-16 bg-white rounded-2xl flex items-center justify-center text-3xl shadow-sm">🏆</div>
+              <div>
+                <p className="text-[10px] font-black text-amber-600 uppercase tracking-widest mb-1">Quiz Topper(s)</p>
+                <h3 className="text-xl font-black text-amber-900">
+                  {analyticsData.toppers.join(', ')}
+                </h3>
+              </div>
+            </div>
+          )}
+
+          <div className="bg-white rounded-[2.5rem] border border-gray-100 overflow-hidden shadow-sm">
+            <div className="p-8 border-b border-gray-100 flex items-center justify-between">
+              <h2 className="text-xl font-black text-gray-900">Attempt Records</h2>
+              <div className="flex gap-2">
+                <span className="px-3 py-1 bg-green-100 text-green-700 rounded-lg text-[10px] font-black uppercase">Completed: {analyticsData.stats.completed}</span>
+                <span className="px-3 py-1 bg-red-100 text-red-700 rounded-lg text-[10px] font-black uppercase">Dropped: {analyticsData.stats.dropped}</span>
+              </div>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="bg-gray-50">
+                    <th className="px-8 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest">Student</th>
+                    <th className="px-8 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest">Quiz</th>
+                    <th className="px-8 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest">Score</th>
+                    <th className="px-8 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest">Percentage</th>
+                    <th className="px-8 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest">Status</th>
+                    <th className="px-8 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest">Date</th>
+                    <th className="px-8 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest text-right">Action</th>
                   </tr>
-                ) : (
-                  allResults.map((res) => (
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {/* Show Results */}
+                  {analyticsData.filteredResults.map((res) => (
                     <tr key={res.id} className="hover:bg-gray-50 transition-all">
                       <td className="px-8 py-5">
                         <p className="font-bold text-gray-900">{res.studentName}</p>
@@ -1143,10 +1269,42 @@ export default function Quizzes({ profile }: { profile: UserProfile }) {
                         )}
                       </td>
                     </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
+                  ))}
+                  {/* Show Dropouts */}
+                  {analyticsData.dropouts.map((drop) => (
+                    <tr key={drop.id} className="bg-red-50/30 hover:bg-red-50/50 transition-all">
+                      <td className="px-8 py-5">
+                        <p className="font-bold text-gray-900">{drop.studentName}</p>
+                        <p className="text-[10px] text-gray-400 font-medium">{drop.studentId}</p>
+                      </td>
+                      <td className="px-8 py-5 font-bold text-gray-700">{drop.quizTitle}</td>
+                      <td className="px-8 py-5 font-black text-gray-400">- / -</td>
+                      <td className="px-8 py-5">
+                        <span className="px-3 py-1 rounded-full text-xs font-black bg-red-100 text-red-700">
+                          Dropped
+                        </span>
+                      </td>
+                      <td className="px-8 py-5">
+                        <span className="px-3 py-1 rounded-full text-xs font-black bg-red-100 text-red-700 uppercase">
+                          Incomplete
+                        </span>
+                      </td>
+                      <td className="px-8 py-5 text-sm text-gray-500 font-medium">
+                        {drop.startTime?.toDate().toLocaleDateString()}
+                      </td>
+                      <td className="px-8 py-5 text-right">
+                        <span className="text-[10px] font-black text-red-400 uppercase tracking-widest">No Action</span>
+                      </td>
+                    </tr>
+                  ))}
+                  {analyticsData.filteredResults.length === 0 && analyticsData.dropouts.length === 0 && (
+                    <tr>
+                      <td colSpan={7} className="px-8 py-12 text-center text-gray-400 font-medium">No records found for this quiz.</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
       ) : activeQuiz ? (
