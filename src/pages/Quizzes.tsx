@@ -103,6 +103,7 @@ export default function Quizzes({ profile }: { profile: UserProfile }) {
   const [allResults, setAllResults] = useState<any[]>([]);
   const [allAttempts, setAllAttempts] = useState<any[]>([]);
   const [selectedAnalyticsQuizId, setSelectedAnalyticsQuizId] = useState<string | 'all'>('all');
+  const [selectedLeaderboardQuizId, setSelectedLeaderboardQuizId] = useState<string | 'all'>('all');
   const [showAnalytics, setShowAnalytics] = useState(false);
   const [showLeaderboard, setShowLeaderboard] = useState(false);
   const [markingResult, setMarkingResult] = useState<any>(null);
@@ -753,10 +754,14 @@ export default function Quizzes({ profile }: { profile: UserProfile }) {
       alert('Failed to update marks.');
     }
   };
-  const getTopScorers = () => {
+  const getTopScorers = (quizId: string | 'all' = 'all') => {
     const studentScores: { [key: string]: { name: string, totalScore: number, quizzesTaken: number } } = {};
     
-    allResults.forEach(res => {
+    const filteredResults = quizId === 'all' 
+      ? allResults 
+      : allResults.filter(res => res.quizId === quizId);
+
+    filteredResults.forEach(res => {
       if (!studentScores[res.studentId]) {
         studentScores[res.studentId] = { name: res.studentName, totalScore: 0, quizzesTaken: 0 };
       }
@@ -806,7 +811,7 @@ export default function Quizzes({ profile }: { profile: UserProfile }) {
   };
 
   const analyticsData = getAnalyticsData();
-  const topScorers = getTopScorers();
+  const topScorers = getTopScorers(selectedLeaderboardQuizId);
 
   return (
     <div className="space-y-8 font-sans">
@@ -818,8 +823,13 @@ export default function Quizzes({ profile }: { profile: UserProfile }) {
         <div className="flex flex-wrap gap-3">
           <button 
             onClick={() => {
-              setShowLeaderboard(!showLeaderboard);
+              const nextState = !showLeaderboard;
+              setShowLeaderboard(nextState);
               setShowAnalytics(false);
+              if (nextState && selectedLeaderboardQuizId === 'all' && quizzes.length > 0) {
+                // Default to latest quiz
+                setSelectedLeaderboardQuizId(quizzes[0].id);
+              }
             }}
             className={`px-6 py-3 rounded-2xl font-bold transition-all flex items-center justify-center gap-2 ${
               showLeaderboard ? 'bg-indigo-100 text-indigo-700' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
@@ -1057,6 +1067,30 @@ export default function Quizzes({ profile }: { profile: UserProfile }) {
         </div>
       ) : showLeaderboard ? (
         <div className="space-y-8">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 bg-white p-8 rounded-[2.5rem] border border-gray-100 shadow-sm">
+            <div>
+              <h2 className="text-2xl font-black text-gray-900 mb-1">
+                {selectedLeaderboardQuizId === 'all' ? 'Overall Top Performers' : `Top Performers: ${quizzes.find(q => q.id === selectedLeaderboardQuizId)?.title}`}
+              </h2>
+              <p className="text-sm text-gray-500 font-medium">
+                {selectedLeaderboardQuizId === 'all' ? 'The brightest minds across all quizzes' : 'Top scorers for this specific test'}
+              </p>
+            </div>
+            <div className="flex items-center gap-4">
+              <span className="text-xs font-black text-gray-400 uppercase tracking-widest">Filter by Quiz:</span>
+              <select 
+                value={selectedLeaderboardQuizId}
+                onChange={(e) => setSelectedLeaderboardQuizId(e.target.value)}
+                className="px-6 py-3 bg-gray-50 border-none rounded-2xl font-bold text-gray-900 focus:ring-2 focus:ring-indigo-100 min-w-[250px]"
+              >
+                <option value="all">All Quizzes (Overall)</option>
+                {quizzes.map(q => (
+                  <option key={q.id} value={q.id}>{q.title}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             {topScorers.slice(0, 3).map((scorer, idx) => (
               <motion.div 
@@ -1078,12 +1112,12 @@ export default function Quizzes({ profile }: { profile: UserProfile }) {
                 </div>
                 <h3 className="text-xl font-black mb-1">{scorer.name}</h3>
                 <p className={`text-sm font-bold uppercase tracking-widest ${idx === 0 ? 'text-amber-100' : 'text-gray-400'}`}>
-                  {scorer.average}% Average
+                  {selectedLeaderboardQuizId === 'all' ? `${scorer.average}% Average` : `${scorer.average}% Score`}
                 </p>
                 <div className={`mt-4 inline-block px-4 py-1 rounded-full text-[10px] font-black uppercase tracking-widest ${
                   idx === 0 ? 'bg-white/20 text-white' : 'bg-gray-100 text-gray-500'
                 }`}>
-                  {scorer.quizzes} Quizzes Taken
+                  {selectedLeaderboardQuizId === 'all' ? `${scorer.quizzes} Quizzes Taken` : 'Single Attempt'}
                 </div>
               </motion.div>
             ))}
@@ -1091,8 +1125,12 @@ export default function Quizzes({ profile }: { profile: UserProfile }) {
 
           <div className="bg-white rounded-[2.5rem] border border-gray-100 overflow-hidden shadow-sm">
             <div className="p-8 border-b border-gray-100">
-              <h2 className="text-xl font-black text-gray-900">Top Performers</h2>
-              <p className="text-sm text-gray-500 font-medium">The brightest minds of the academy</p>
+              <h2 className="text-xl font-black text-gray-900">
+                {selectedLeaderboardQuizId === 'all' ? 'Top Performers' : 'Quiz Ranking'}
+              </h2>
+              <p className="text-sm text-gray-500 font-medium">
+                {selectedLeaderboardQuizId === 'all' ? 'The brightest minds of the academy' : 'Ranked list of students for this test'}
+              </p>
             </div>
             <div className="overflow-x-auto">
               <table className="w-full text-left border-collapse">
@@ -1100,34 +1138,48 @@ export default function Quizzes({ profile }: { profile: UserProfile }) {
                   <tr className="bg-gray-50">
                     <th className="px-8 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest">Rank</th>
                     <th className="px-8 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest">Student</th>
-                    <th className="px-8 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest text-center">Avg. Score</th>
-                    <th className="px-8 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest text-right">Quizzes</th>
+                    <th className="px-8 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest text-center">
+                      {selectedLeaderboardQuizId === 'all' ? 'Avg. Score' : 'Score'}
+                    </th>
+                    <th className="px-8 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest text-right">
+                      {selectedLeaderboardQuizId === 'all' ? 'Quizzes' : 'Status'}
+                    </th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
-                  {topScorers.map((scorer, idx) => (
-                    <tr key={scorer.id} className="hover:bg-gray-50 transition-all">
-                      <td className="px-8 py-5">
-                        <span className={`w-8 h-8 rounded-lg flex items-center justify-center font-black text-sm ${
-                          idx === 0 ? 'bg-amber-100 text-amber-600' :
-                          idx === 1 ? 'bg-gray-100 text-gray-600' :
-                          idx === 2 ? 'bg-orange-50 text-orange-600' :
-                          'text-gray-400'
-                        }`}>
-                          {idx + 1}
-                        </span>
-                      </td>
-                      <td className="px-8 py-5">
-                        <p className="font-bold text-gray-900">{scorer.name}</p>
-                      </td>
-                      <td className="px-8 py-5 text-center">
-                        <span className="text-lg font-black text-blue-600">{scorer.average}%</span>
-                      </td>
-                      <td className="px-8 py-5 text-right font-bold text-gray-500">
-                        {scorer.quizzes}
-                      </td>
+                  {topScorers.length === 0 ? (
+                    <tr>
+                      <td colSpan={4} className="px-8 py-12 text-center text-gray-400 font-medium">No one has attempted this quiz yet.</td>
                     </tr>
-                  ))}
+                  ) : (
+                    topScorers.map((scorer, idx) => (
+                      <tr key={scorer.id} className="hover:bg-gray-50 transition-all">
+                        <td className="px-8 py-5">
+                          <span className={`w-8 h-8 rounded-lg flex items-center justify-center font-black text-sm ${
+                            idx === 0 ? 'bg-amber-100 text-amber-600' :
+                            idx === 1 ? 'bg-gray-100 text-gray-600' :
+                            idx === 2 ? 'bg-orange-50 text-orange-600' :
+                            'text-gray-400'
+                          }`}>
+                            {idx + 1}
+                          </span>
+                        </td>
+                        <td className="px-8 py-5">
+                          <p className="font-bold text-gray-900">{scorer.name}</p>
+                        </td>
+                        <td className="px-8 py-5 text-center">
+                          <span className="text-lg font-black text-blue-600">{scorer.average}%</span>
+                        </td>
+                        <td className="px-8 py-5 text-right font-bold text-gray-500">
+                          {selectedLeaderboardQuizId === 'all' ? (
+                            scorer.quizzes
+                          ) : (
+                            <span className="px-3 py-1 bg-green-100 text-green-700 rounded-lg text-[10px] font-black uppercase">Completed</span>
+                          )}
+                        </td>
+                      </tr>
+                    ))
+                  )}
                 </tbody>
               </table>
             </div>
