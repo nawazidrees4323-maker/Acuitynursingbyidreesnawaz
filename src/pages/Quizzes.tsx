@@ -137,47 +137,81 @@ export default function Quizzes({ profile }: { profile: UserProfile }) {
 
   const parseBulkQuestions = () => {
     const questions: Question[] = [];
-    const blocks = bulkText.split(/\n\s*\n/);
+    const lines = bulkText.split('\n').map(l => l.trim()).filter(l => l !== '');
+    
+    let currentQuestion: Partial<Question> | null = null;
 
-    blocks.forEach((block) => {
-      const lines = block.split('\n').map(l => l.trim()).filter(l => l !== '');
-      if (lines.length < 2) return;
+    lines.forEach((line) => {
+      // Detect a new question (starts with number like 1. or 1))
+      const questionMatch = line.match(/^(\d+)[\.\)]\s*(.*)/);
+      // Detect options (A. or A) or a. or a))
+      const optionMatch = line.match(/^([A-D]|[a-d])[\.\)]\s*(.*)/i);
+      // Detect answer key
+      const answerMatch = line.match(/^(?:Answer|Correct|Ans|Key|Correct Answer):\s*([A-D]|[a-d])/i);
 
-      const questionText = lines[0].replace(/^\d+[\.\)]\s*/, '');
-      const options: string[] = [];
-      let correctAnswer = -1;
-
-      lines.slice(1).forEach(line => {
-        const optionMatch = line.match(/^([A-D])[\.\)]\s*(.*)/i);
-        if (optionMatch) {
-          options.push(optionMatch[2]);
-        } else {
-          const answerMatch = line.match(/^(?:Answer|Correct|Ans|Key):\s*([A-D])/i);
-          if (answerMatch) {
-            const letter = answerMatch[1].toUpperCase();
-            correctAnswer = letter.charCodeAt(0) - 65;
-          }
+      if (questionMatch) {
+        // If we were already building a question, save it
+        if (currentQuestion && currentQuestion.question) {
+          while (currentQuestion.options!.length < 4) currentQuestion.options!.push('');
+          questions.push(currentQuestion as Question);
         }
-      });
-
-      if (options.length >= 2 || lines.length > 1) {
-        // Fill up to 4 options if less
-        while (options.length < 4) options.push('');
-        
-        questions.push({
+        // Start new question
+        currentQuestion = {
           id: Math.random().toString(36).substr(2, 9),
-          question: questionText,
-          options: options.slice(0, 4),
-          correctAnswer: correctAnswer >= 0 && correctAnswer < 4 ? correctAnswer : -1,
+          question: questionMatch[2],
+          options: [],
+          correctAnswer: -1,
           type: 'mcq',
           difficulty: 'medium',
           topic: ''
-        });
+        };
+      } else if (optionMatch && currentQuestion) {
+        if (currentQuestion.options!.length < 4) {
+          currentQuestion.options!.push(optionMatch[2]);
+        }
+      } else if (answerMatch && currentQuestion) {
+        const letter = answerMatch[1].toUpperCase();
+        currentQuestion.correctAnswer = letter.charCodeAt(0) - 65;
+      } else if (currentQuestion && !optionMatch && !answerMatch) {
+        // If it doesn't match anything but we have a current question, 
+        // it might be a continuation of the question text or an option without a prefix
+        if (currentQuestion.options!.length === 0) {
+          currentQuestion.question += ' ' + line;
+        } else if (currentQuestion.options!.length > 0) {
+          // Append to last option
+          const lastIdx = currentQuestion.options!.length - 1;
+          currentQuestion.options![lastIdx] += ' ' + line;
+        }
+      } else if (!currentQuestion && line.length > 5) {
+        // Fallback: if no question started yet, treat this line as a question start
+        currentQuestion = {
+          id: Math.random().toString(36).substr(2, 9),
+          question: line,
+          options: [],
+          correctAnswer: -1,
+          type: 'mcq',
+          difficulty: 'medium',
+          topic: ''
+        };
       }
     });
 
+    // Push the last question
+    if (currentQuestion && currentQuestion.question) {
+      while (currentQuestion.options!.length < 4) currentQuestion.options!.push('');
+      questions.push(currentQuestion as Question);
+    }
+
     if (questions.length > 0) {
-      setNewQuiz({ ...newQuiz, questions });
+      // Check if we should append or replace
+      // If there's only one question and it's empty, replace it. Otherwise append.
+      const currentQuestions = newQuiz.questions || [];
+      const isFirstEmpty = currentQuestions.length === 1 && currentQuestions[0].question.trim() === '';
+      
+      setNewQuiz({ 
+        ...newQuiz, 
+        questions: isFirstEmpty ? questions : [...currentQuestions, ...questions] 
+      });
       setIsBulkMode(false);
       setBulkText('');
     } else {
