@@ -142,23 +142,34 @@ export default function Quizzes({ profile }: { profile: UserProfile }) {
     let currentQuestion: Partial<Question> | null = null;
 
     lines.forEach((line) => {
-      // Detect a new question (starts with number like 1. or 1))
-      const questionMatch = line.match(/^(\d+)[\.\)]\s*(.*)/);
-      // Detect options (A. or A) or a. or a))
-      const optionMatch = line.match(/^([A-D]|[a-d])[\.\)]\s*(.*)/i);
-      // Detect answer key
-      const answerMatch = line.match(/^(?:Answer|Correct|Ans|Key|Correct Answer):\s*([A-D]|[a-d])/i);
+      // 1. Detect Question Start (e.g., "1.", "1)", "Q1:", "[1]")
+      const questionMatch = line.match(/^(\d+|Q\d+|Question\s*\d+)[.\)\-:\s\]]+\s*(.*)/i);
+      
+      // 2. Detect Options (e.g., "A.", "a)", "(B)", "C:")
+      const optionMatch = line.match(/^[\(\[]?([A-D]|[a-d])[\)\]\.\-:\s]+\s*(.*)/i);
+      
+      // 3. Detect Answer Key (e.g., "Answer: A", "Ans: B", "Key: C")
+      const answerMatch = line.match(/^(?:Answer|Correct|Ans|Key|Result|Correct Answer)[:\-\s]+\s*([A-D]|[a-d])/i);
 
-      if (questionMatch) {
-        // If we were already building a question, save it
+      // 4. Heuristic for new question without a number
+      // If we have a question that already has an answer or 4 options, 
+      // and the current line doesn't look like an option or answer, it's a new question.
+      const isNewQuestionHeuristic = currentQuestion && 
+                                     (currentQuestion.correctAnswer !== -1 || currentQuestion.options!.length >= 4) && 
+                                     !optionMatch && 
+                                     !answerMatch;
+
+      if (questionMatch || isNewQuestionHeuristic) {
+        // Save previous question
         if (currentQuestion && currentQuestion.question) {
           while (currentQuestion.options!.length < 4) currentQuestion.options!.push('');
           questions.push(currentQuestion as Question);
         }
+        
         // Start new question
         currentQuestion = {
           id: Math.random().toString(36).substr(2, 9),
-          question: questionMatch[2],
+          question: questionMatch ? questionMatch[2] : line,
           options: [],
           correctAnswer: -1,
           type: 'mcq',
@@ -166,24 +177,24 @@ export default function Quizzes({ profile }: { profile: UserProfile }) {
           topic: ''
         };
       } else if (optionMatch && currentQuestion) {
+        // Add option
         if (currentQuestion.options!.length < 4) {
           currentQuestion.options!.push(optionMatch[2]);
         }
       } else if (answerMatch && currentQuestion) {
+        // Set correct answer
         const letter = answerMatch[1].toUpperCase();
         currentQuestion.correctAnswer = letter.charCodeAt(0) - 65;
-      } else if (currentQuestion && !optionMatch && !answerMatch) {
-        // If it doesn't match anything but we have a current question, 
-        // it might be a continuation of the question text or an option without a prefix
+      } else if (currentQuestion) {
+        // Append to existing part
         if (currentQuestion.options!.length === 0) {
           currentQuestion.question += ' ' + line;
-        } else if (currentQuestion.options!.length > 0) {
-          // Append to last option
+        } else {
           const lastIdx = currentQuestion.options!.length - 1;
           currentQuestion.options![lastIdx] += ' ' + line;
         }
-      } else if (!currentQuestion && line.length > 5) {
-        // Fallback: if no question started yet, treat this line as a question start
+      } else {
+        // First line fallback
         currentQuestion = {
           id: Math.random().toString(36).substr(2, 9),
           question: line,
@@ -196,7 +207,7 @@ export default function Quizzes({ profile }: { profile: UserProfile }) {
       }
     });
 
-    // Push the last question
+    // Save the very last question
     if (currentQuestion && currentQuestion.question) {
       while (currentQuestion.options!.length < 4) currentQuestion.options!.push('');
       questions.push(currentQuestion as Question);
