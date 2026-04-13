@@ -1,8 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { db, collection, getDocs, setDoc, doc, query, where, Timestamp } from '../lib/firebase';
-import { CreditCard, CheckCircle2, AlertCircle, Search, Filter, Plus, DollarSign, Calendar } from 'lucide-react';
+import { CreditCard, CheckCircle2, AlertCircle, Search, Filter, Plus, DollarSign, Calendar, Settings, Copy, Check } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { format } from 'date-fns';
+
+interface FeeConfig {
+  accountDetails: string;
+  lastUpdated: Timestamp;
+}
 
 interface FeeRecord {
   id: string;
@@ -25,6 +30,10 @@ export default function FeeManagement({ profile }: { profile: any }) {
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
+  const [feeConfig, setFeeConfig] = useState<FeeConfig | null>(null);
+  const [isConfigModalOpen, setIsConfigModalOpen] = useState(false);
+  const [configText, setConfigText] = useState('');
+  const [copied, setCopied] = useState(false);
 
   const [formData, setFormData] = useState({
     studentId: '',
@@ -44,6 +53,15 @@ export default function FeeManagement({ profile }: { profile: any }) {
 
       setStudents(studentsSnap.docs.map(doc => ({ uid: doc.id, ...doc.data() } as Student)));
       setFees(feesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as FeeRecord)));
+
+      // Fetch fee config
+      const configSnap = await getDocs(collection(db, 'settings'));
+      const feeConfigDoc = configSnap.docs.find(d => d.id === 'fee_config');
+      if (feeConfigDoc) {
+        const data = feeConfigDoc.data() as FeeConfig;
+        setFeeConfig(data);
+        setConfigText(data.accountDetails);
+      }
     } catch (error) {
       console.error('Error fetching data:', error);
     } finally {
@@ -84,6 +102,25 @@ export default function FeeManagement({ profile }: { profile: any }) {
     }
   };
 
+  const handleSaveConfig = async () => {
+    try {
+      await setDoc(doc(db, 'settings', 'fee_config'), {
+        accountDetails: configText,
+        lastUpdated: Timestamp.now()
+      });
+      setIsConfigModalOpen(false);
+      fetchData();
+    } catch (error) {
+      console.error('Error saving fee config:', error);
+    }
+  };
+
+  const copyToClipboard = (text: string) => {
+    navigator.clipboard.writeText(text);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
   const filteredFees = fees.filter(f => {
     const student = students.find(s => s.uid === f.studentId);
     const matchesSearch = student?.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
@@ -101,16 +138,61 @@ export default function FeeManagement({ profile }: { profile: any }) {
             {isAdmin ? 'Track and manage student payments' : 'View your fee status and history'}
           </p>
         </div>
-        {isAdmin && (
-          <button 
-            onClick={() => setIsModalOpen(true)}
-            className="px-6 py-3 bg-blue-600 text-white rounded-2xl font-bold hover:bg-blue-700 transition-all shadow-lg shadow-blue-100 flex items-center justify-center gap-2"
-          >
-            <Plus className="w-5 h-5" />
-            Create Fee Record
-          </button>
-        )}
+        <div className="flex gap-3">
+          {isAdmin && (
+            <>
+              <button 
+                onClick={() => setIsConfigModalOpen(true)}
+                className="px-6 py-3 bg-white border border-gray-200 text-gray-600 rounded-2xl font-bold hover:bg-gray-50 transition-all flex items-center justify-center gap-2"
+              >
+                <Settings className="w-5 h-5" />
+                Fee Account
+              </button>
+              <button 
+                onClick={() => setIsModalOpen(true)}
+                className="px-6 py-3 bg-blue-600 text-white rounded-2xl font-bold hover:bg-blue-700 transition-all shadow-lg shadow-blue-100 flex items-center justify-center gap-2"
+              >
+                <Plus className="w-5 h-5" />
+                Create Fee Record
+              </button>
+            </>
+          )}
+        </div>
       </div>
+
+      {/* Fee Account Details for Students */}
+      {feeConfig && (
+        <motion.div 
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="bg-gradient-to-br from-blue-600 to-indigo-700 p-8 rounded-[2.5rem] text-white shadow-xl shadow-blue-100 relative overflow-hidden"
+        >
+          <div className="absolute top-0 right-0 p-12 opacity-10">
+            <CreditCard className="w-64 h-64 rotate-12" />
+          </div>
+          <div className="relative z-10">
+            <h2 className="text-xl font-black mb-4 flex items-center gap-2">
+              <CreditCard className="w-6 h-6" />
+              Fee Payment Account Details
+            </h2>
+            <div className="bg-white/10 backdrop-blur-md p-6 rounded-3xl border border-white/20">
+              <pre className="whitespace-pre-wrap font-mono text-lg font-bold">
+                {feeConfig.accountDetails}
+              </pre>
+              <button 
+                onClick={() => copyToClipboard(feeConfig.accountDetails)}
+                className="mt-4 flex items-center gap-2 px-4 py-2 bg-white text-blue-600 rounded-xl font-bold text-sm hover:bg-blue-50 transition-all"
+              >
+                {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+                {copied ? 'Copied!' : 'Copy Details'}
+              </button>
+            </div>
+            <p className="mt-4 text-blue-100 text-sm font-medium">
+              Please pay your fees to the account above and share the receipt with the administration for approval.
+            </p>
+          </div>
+        </motion.div>
+      )}
 
       {/* Stats Summary */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -304,6 +386,45 @@ export default function FeeManagement({ profile }: { profile: any }) {
                   Create Record
                 </button>
               </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Fee Config Modal */}
+      <AnimatePresence>
+        {isConfigModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-white w-full max-w-lg rounded-3xl shadow-2xl overflow-hidden"
+            >
+              <div className="p-8 border-b border-gray-100 flex items-center justify-between">
+                <h2 className="text-2xl font-black text-gray-900">Fee Account Settings</h2>
+                <button onClick={() => setIsConfigModalOpen(false)} className="p-2 hover:bg-gray-100 rounded-xl text-gray-400">
+                  <Plus className="w-6 h-6 rotate-45" />
+                </button>
+              </div>
+              <div className="p-8 space-y-6">
+                <div>
+                  <label className="block text-sm font-black text-gray-400 uppercase tracking-widest mb-2">Account Details</label>
+                  <textarea 
+                    className="w-full px-5 py-4 bg-gray-50 border-none rounded-2xl focus:ring-2 focus:ring-blue-100 font-bold text-gray-900 min-h-[150px]"
+                    placeholder="Enter bank name, account number, title, etc."
+                    value={configText}
+                    onChange={(e) => setConfigText(e.target.value)}
+                  />
+                  <p className="mt-2 text-xs text-gray-400 font-medium">This information will be visible to all students on their fee dashboard.</p>
+                </div>
+                <button 
+                  onClick={handleSaveConfig}
+                  className="w-full py-4 bg-blue-600 text-white rounded-2xl font-bold hover:bg-blue-700 transition-all shadow-lg shadow-blue-100"
+                >
+                  Save Configuration
+                </button>
+              </div>
             </motion.div>
           </div>
         )}

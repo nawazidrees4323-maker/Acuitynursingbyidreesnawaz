@@ -105,35 +105,70 @@ function ErrorBoundary({ children }: { children: React.ReactNode }) {
 
 // Pending Approval Component
 function PendingApproval({ profile }: { profile: UserProfile }) {
+  const [feeConfig, setFeeConfig] = useState<{ accountDetails: string } | null>(null);
+
+  useEffect(() => {
+    const fetchConfig = async () => {
+      const docSnap = await getDoc(doc(db, 'settings', 'fee_config'));
+      if (docSnap.exists()) {
+        setFeeConfig(docSnap.data() as any);
+      }
+    };
+    fetchConfig();
+  }, []);
+
   return (
     <div className="min-h-screen flex items-center justify-center bg-[#F8F9FA] p-4">
       <motion.div 
         initial={{ opacity: 0, scale: 0.9 }}
         animate={{ opacity: 1, scale: 1 }}
-        className="max-w-md w-full bg-white p-10 rounded-[2.5rem] shadow-2xl border border-gray-100 text-center"
+        className="max-w-xl w-full bg-white p-10 rounded-[2.5rem] shadow-2xl border border-gray-100 text-center"
       >
         <div className={`w-20 h-20 rounded-3xl flex items-center justify-center mx-auto mb-8 shadow-lg ${
           profile.status === 'rejected' ? 'bg-red-100 text-red-600 shadow-red-50' : 'bg-amber-100 text-amber-600 shadow-amber-50'
         }`}>
-          {profile.status === 'rejected' ? <ShieldAlert className="w-10 h-10" /> : <ShieldCheck className="w-10 h-10" />}
+          {profile.status === 'rejected' ? <ShieldAlert className="w-10 h-10" /> : <CreditCard className="w-10 h-10" />}
         </div>
         
         <h1 className="text-3xl font-black text-gray-900 mb-4 tracking-tight">
-          {profile.status === 'rejected' ? 'Access Denied' : 'Pending Approval'}
+          {profile.status === 'rejected' ? 'Access Denied' : 'Fee Payment Required'}
         </h1>
         <p className="text-gray-500 mb-8 font-medium leading-relaxed">
           {profile.status === 'rejected' 
             ? 'Your registration request has been rejected by the administrator. Please contact support if you believe this is an error.' 
-            : 'Welcome to Acuity Nursing! Your account is currently pending administrator approval. You will gain full access once your registration is verified.'}
+            : 'Welcome to Acuity Nursing! To gain full access to the test sessions and study materials, please complete your fee payment.'}
         </p>
+
+        {profile.status === 'pending' && feeConfig && (
+          <div className="mb-8 text-left bg-blue-50 p-6 rounded-3xl border border-blue-100">
+            <h3 className="text-sm font-black text-blue-600 uppercase tracking-widest mb-3 flex items-center gap-2">
+              <CreditCard className="w-4 h-4" />
+              Fee Account Details
+            </h3>
+            <pre className="whitespace-pre-wrap font-mono text-sm font-bold text-blue-900 bg-white/50 p-4 rounded-xl border border-blue-200">
+              {feeConfig.accountDetails}
+            </pre>
+            <p className="mt-4 text-xs text-blue-600 font-medium">
+              After payment, please send your receipt to the administration. Your account will be approved once the payment is verified.
+            </p>
+          </div>
+        )}
         
-        <button 
-          onClick={() => auth.signOut()}
-          className="w-full py-4 bg-gray-900 text-white rounded-2xl font-bold hover:bg-gray-800 transition-all flex items-center justify-center gap-2"
-        >
-          <LogOut className="w-5 h-5" />
-          Sign Out
-        </button>
+        <div className="flex flex-col sm:flex-row gap-4">
+          <button 
+            onClick={() => window.location.reload()}
+            className="flex-1 py-4 bg-white border-2 border-gray-100 text-gray-900 rounded-2xl font-bold hover:bg-gray-50 transition-all"
+          >
+            Check Status
+          </button>
+          <button 
+            onClick={() => auth.signOut()}
+            className="flex-1 py-4 bg-gray-900 text-white rounded-2xl font-bold hover:bg-gray-800 transition-all flex items-center justify-center gap-2"
+          >
+            <LogOut className="w-5 h-5" />
+            Sign Out
+          </button>
+        </div>
       </motion.div>
     </div>
   );

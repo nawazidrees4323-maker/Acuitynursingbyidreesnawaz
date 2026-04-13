@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { db, collection, onSnapshot, setDoc, doc, deleteDoc, Timestamp, query, where } from '../lib/firebase';
-import { UserPlus, Search, Edit2, Trash2, MoreVertical, CheckCircle2, XCircle, Mail, User } from 'lucide-react';
+import { UserPlus, Search, Edit2, Trash2, MoreVertical, CheckCircle2, XCircle, Mail, User, CreditCard, Bell } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 interface UserProfile {
@@ -72,12 +72,31 @@ export default function UserManagement() {
     }
   };
 
-  const handleStatusUpdate = async (uid: string, newStatus: 'approved' | 'rejected') => {
+  const handleStatusUpdate = async (uid: string, newStatus: 'approved' | 'rejected' | 'pending') => {
     try {
       const userRef = doc(db, 'users', uid);
       await setDoc(userRef, { status: newStatus }, { merge: true });
     } catch (error) {
       console.error('Error updating status:', error);
+    }
+  };
+
+  const sendFeeNotification = async (user: UserProfile) => {
+    try {
+      const notificationId = Math.random().toString(36).substr(2, 9);
+      await setDoc(doc(db, 'notifications', notificationId), {
+        id: notificationId,
+        recipientId: user.uid,
+        title: 'Fee Payment Required',
+        message: `Dear ${user.name}, your account is currently pending fee payment. Please pay your fees to the account details mentioned in the Fee Management section and share the receipt for approval.`,
+        type: 'alert',
+        read: false,
+        createdAt: Timestamp.now()
+      });
+      alert(`Fee notification sent to ${user.name}`);
+    } catch (error) {
+      console.error('Error sending notification:', error);
+      alert('Failed to send notification');
     }
   };
 
@@ -227,23 +246,41 @@ export default function UserManagement() {
                     </td>
                     <td className="px-8 py-6 text-right">
                       <div className="flex items-center justify-end gap-2">
-                        {user.status === 'pending' && (
-                          <>
-                            <button 
-                              onClick={() => handleStatusUpdate(user.uid, 'approved')}
-                              className="p-2 text-green-600 hover:bg-green-50 rounded-lg transition-all"
-                              title="Approve"
-                            >
-                              <CheckCircle2 className="w-5 h-5" />
-                            </button>
-                            <button 
-                              onClick={() => handleStatusUpdate(user.uid, 'rejected')}
-                              className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-all"
-                              title="Reject"
-                            >
-                              <XCircle className="w-5 h-5" />
-                            </button>
-                          </>
+                        {user.role === 'student' && (
+                          <button 
+                            onClick={() => sendFeeNotification(user)}
+                            className="p-2 text-amber-600 hover:bg-amber-50 rounded-lg transition-all"
+                            title="Send Fee Notification"
+                          >
+                            <Bell className="w-5 h-5" />
+                          </button>
+                        )}
+                        {user.status !== 'approved' && (
+                          <button 
+                            onClick={() => handleStatusUpdate(user.uid, 'approved')}
+                            className="p-2 text-green-600 hover:bg-green-50 rounded-lg transition-all"
+                            title="Approve"
+                          >
+                            <CheckCircle2 className="w-5 h-5" />
+                          </button>
+                        )}
+                        {user.status !== 'pending' && (
+                          <button 
+                            onClick={() => handleStatusUpdate(user.uid, 'pending')}
+                            className="p-2 text-amber-600 hover:bg-amber-50 rounded-lg transition-all"
+                            title="Set to Pending"
+                          >
+                            <CreditCard className="w-5 h-5" />
+                          </button>
+                        )}
+                        {user.status !== 'rejected' && (
+                          <button 
+                            onClick={() => handleStatusUpdate(user.uid, 'rejected')}
+                            className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-all"
+                            title="Reject"
+                          >
+                            <XCircle className="w-5 h-5" />
+                          </button>
                         )}
                         <button 
                           onClick={() => {
