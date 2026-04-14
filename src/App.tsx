@@ -362,8 +362,11 @@ export default function App() {
 
     // Fallback timeout to stop loading if Firebase hangs
     const timeout = setTimeout(() => {
-      setLoading(false);
-    }, 10000);
+      if (loading) {
+        console.warn("Auth setup timed out after 15s");
+        setLoading(false);
+      }
+    }, 15000);
 
     const unsubscribeAuth = onAuthStateChanged(auth, async (user) => {
       // Clean up previous listeners
@@ -373,50 +376,58 @@ export default function App() {
       if (user) {
         setUser(user);
         
-        try {
-          // Initial fetch to ensure loading stops quickly
-          const docSnap = await getDoc(doc(db, 'users', user.uid));
-          
-          if (docSnap.exists()) {
-            const data = docSnap.data() as UserProfile;
-            setProfile(data);
+        const fetchProfile = async (retryCount = 0) => {
+          try {
+            const docRef = doc(db, 'users', user.uid);
+            const docSnap = await getDoc(docRef);
             
-            // If admin, listen for pending users
-            if (data.role === 'admin') {
-              const q = query(collection(db, 'users'), where('status', '==', 'pending'));
-              unsubscribePending = onSnapshot(q, (snapshot) => {
-                setPendingCount(snapshot.size);
-              });
+            if (docSnap.exists()) {
+              const data = docSnap.data() as UserProfile;
+              setProfile(data);
+              
+              if (data.role === 'admin') {
+                const q = query(collection(db, 'users'), where('status', '==', 'pending'));
+                unsubscribePending = onSnapshot(q, (snapshot) => {
+                  setPendingCount(snapshot.size);
+                });
+              }
+            } else {
+              // Create profile if it doesn't exist
+              const isAdminEmail = user.email === "nawazidrees4323@gmail.com";
+              const newProfile: UserProfile = {
+                uid: user.uid,
+                name: user.displayName || 'New User',
+                email: user.email || '',
+                role: isAdminEmail ? 'admin' : 'student',
+                status: isAdminEmail ? 'approved' : 'pending',
+                photoURL: user.photoURL || undefined,
+                createdAt: Timestamp.now(),
+              };
+              await setDoc(docRef, newProfile);
+              setProfile(newProfile);
             }
-          } else {
-            const isAdminEmail = user.email === "nawazidrees4323@gmail.com";
-            const newProfile: UserProfile = {
-              uid: user.uid,
-              name: user.displayName || 'New User',
-              email: user.email || '',
-              role: isAdminEmail ? 'admin' : 'student',
-              status: isAdminEmail ? 'approved' : 'pending',
-              photoURL: user.photoURL || undefined,
-              createdAt: Timestamp.now(),
-            };
-            await setDoc(doc(db, 'users', user.uid), newProfile);
-            setProfile(newProfile);
-          }
-          
-          // Now set up real-time listener for profile updates (e.g. approval)
-          unsubscribeProfile = onSnapshot(doc(db, 'users', user.uid), (snap) => {
-            if (snap.exists()) {
-              setProfile(snap.data() as UserProfile);
-            }
-          });
+            
+            // Set up real-time listener
+            unsubscribeProfile = onSnapshot(docRef, (snap) => {
+              if (snap.exists()) {
+                setProfile(snap.data() as UserProfile);
+              }
+            });
 
-          setLoading(false);
-          clearTimeout(timeout);
-        } catch (error) {
-          console.error("Auth setup error:", error);
-          setLoading(false);
-          clearTimeout(timeout);
-        }
+            setLoading(false);
+            clearTimeout(timeout);
+          } catch (error) {
+            console.error(`Auth setup error (attempt ${retryCount + 1}):`, error);
+            if (retryCount < 2) {
+              setTimeout(() => fetchProfile(retryCount + 1), 2000);
+            } else {
+              setLoading(false);
+              clearTimeout(timeout);
+            }
+          }
+        };
+
+        fetchProfile();
       } else {
         setUser(null);
         setProfile(null);
@@ -458,24 +469,28 @@ export default function App() {
         <div className="w-20 h-20 bg-red-100 text-red-600 rounded-3xl flex items-center justify-center mb-8 shadow-lg shadow-red-100">
           <AlertCircle className="w-10 h-10" />
         </div>
-        <h1 className="text-3xl font-black text-gray-900 mb-4 tracking-tight">Profile Error</h1>
+        <h1 className="text-3xl font-black text-gray-900 mb-4 tracking-tight">Profile Connection Error</h1>
         <p className="text-gray-500 mb-8 font-medium max-w-md mx-auto">
-          We couldn't load your profile information. This might be due to a connection issue or a configuration error.
+          We're having trouble connecting to your profile. This usually happens due to a temporary network glitch or slow internet connection.
         </p>
-        <div className="flex gap-4">
-          <button 
-            onClick={() => auth.signOut()}
-            className="px-8 py-4 bg-gray-900 text-white rounded-2xl font-bold hover:bg-gray-800 transition-all"
-          >
-            Sign Out
-          </button>
+        <div className="flex flex-col sm:flex-row gap-4">
           <button 
             onClick={() => window.location.reload()}
+            className="px-8 py-4 bg-blue-600 text-white rounded-2xl font-bold hover:bg-blue-700 transition-all shadow-lg shadow-blue-100 flex items-center justify-center gap-2"
+          >
+            <Clock className="w-5 h-5" />
+            Retry Connection
+          </button>
+          <button 
+            onClick={() => auth.signOut()}
             className="px-8 py-4 bg-white border-2 border-gray-100 text-gray-900 rounded-2xl font-bold hover:bg-gray-50 transition-all"
           >
-            Try Again
+            Sign Out & Login Again
           </button>
         </div>
+        <p className="mt-8 text-xs text-gray-400 font-medium">
+          User ID: {user.uid}
+        </p>
       </div>
     );
   }
