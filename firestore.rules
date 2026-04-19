@@ -234,5 +234,20 @@ service cloud.firestore {
       allow update: if isAuthenticated() && (resource.data.recipientId == request.auth.uid);
       allow delete: if isAdmin();
     }
+
+    match /quiz_schedule/{scheduleId} {
+      allow read: if isApproved();
+      allow write: if isAdmin() || isTeacher();
+    }
+
+    match /vouchers/{voucherId} {
+      allow read: if isAdmin() || (isStudent() && isApproved() && request.auth.uid == resource.data.studentId);
+      allow write: if isAdmin();
+    }
+
+    match /settings/{settingId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
   }
 }
