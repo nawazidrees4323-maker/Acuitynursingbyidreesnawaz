@@ -1,3 +1,4 @@
+// Forced update to trigger sync
 import React, { useState, useEffect } from 'react';
 import { db, collection, query, where, onSnapshot, doc, setDoc, Timestamp, getDocs, orderBy } from '../lib/firebase';
 import { Printer, Download, Search, Plus, CreditCard, User, History, CheckCircle2, ShieldCheck, Mail, Send } from 'lucide-react';

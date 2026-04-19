@@ -1,3 +1,4 @@
+// Forced update for navigation
 import React, { useEffect, useState } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, Link, useLocation, Outlet } from 'react-router-dom';
 import { auth, db, onAuthStateChanged, doc, getDoc, setDoc, Timestamp, FirebaseUser, onSnapshot, query, collection, where } from './lib/firebase';
