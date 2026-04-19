@@ -179,6 +179,22 @@
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["date", "subject", "topic"]
+    },
+    "Voucher": {
+      "title": "Voucher",
+      "description": "Represents a generated fee voucher/receipt.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "studentId": { "type": "string" },
+        "studentName": { "type": "string" },
+        "amount": { "type": "number" },
+        "subject": { "type": "string" },
+        "paymentDate": { "type": "string", "format": "date-time" },
+        "voucherNumber": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["studentId", "amount", "voucherNumber"]
     }
   },
   "firestore": {
@@ -192,6 +208,7 @@
     "/resources/{resourceId}": { "schema": "Resource", "description": "Learning resources" },
     "/quizzes/{quizId}": { "schema": "Quiz", "description": "Quiz definitions" },
     "/notifications/{notificationId}": { "schema": "Notification", "description": "User notifications" },
-    "/quiz_schedule/{scheduleId}": { "schema": "QuizSchedule", "description": "Weekly quiz schedules" }
+    "/quiz_schedule/{scheduleId}": { "schema": "QuizSchedule", "description": "Weekly quiz schedules" },
+    "/vouchers/{voucherId}": { "schema": "Voucher", "description": "Generated fee vouchers" }
   }
 }
