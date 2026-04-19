@@ -137,7 +137,7 @@ export default function FeeManagement({ profile }: { profile: any }) {
     <div className="space-y-8">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-black text-gray-900">Fee Management</h1>
+          <h1 className="text-3xl font-black text-gray-900">Fee Management [UPDATED]</h1>
           <p className="text-gray-500 font-medium">
             {isAdmin ? 'Track and manage student payments' : 'View your fee status and history'}
           </p>
