@@ -80,11 +80,16 @@ export default function Notifications({ profile }: { profile: any }) {
 
       // 2. Send email if requested
       if (formData.sendEmail) {
+        // Filter out any recipients without an email address
         const recipients = formData.recipientId === 'all' 
-          ? users.filter(u => u.role === 'student').map(u => u.email)
-          : users.filter(u => u.uid === formData.recipientId).map(u => u.email);
+          ? users.filter(u => u.role === 'student' && u.email).map(u => u.email)
+          : users.filter(u => u.uid === formData.recipientId && u.email).map(u => u.email);
 
-        if (recipients.length > 0) {
+        console.log('Recipients found:', recipients);
+
+        if (recipients.length === 0) {
+          alert('Warning: No students with a registered email address were found. The in-app notification was sent, but no emails could be sent.');
+        } else {
           const emailBody = `
             Category: ${formData.category.toUpperCase()}
             
@@ -93,7 +98,7 @@ export default function Notifications({ profile }: { profile: any }) {
             This is an automated notification from Acuity Nursing Academy.
           `;
 
-          await fetch('/api/send-email', {
+          const response = await fetch('/api/send-email', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -102,6 +107,11 @@ export default function Notifications({ profile }: { profile: any }) {
               body: emailBody
             })
           });
+
+          if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.error || 'Failed to send email API call');
+          }
         }
       }
 

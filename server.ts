@@ -26,9 +26,13 @@ async function startServer() {
       }
 
       const transporter = nodemailer.createTransport({
-        service: "gmail",
+        host: "smtp.gmail.com",
+        port: 465,
+        secure: true, // Use SSL
         auth: { user, pass },
       });
+
+      console.log(`Attempting to send email to ${Array.isArray(to) ? to.join(', ') : to}`);
 
       await transporter.sendMail({
         from: `"Acuity Nursing Academy" <${user}>`,
