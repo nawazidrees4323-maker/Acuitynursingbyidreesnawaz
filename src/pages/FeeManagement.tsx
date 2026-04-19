@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { db, collection, getDocs, setDoc, doc, query, where, Timestamp } from '../lib/firebase';
-import { CreditCard, CheckCircle2, AlertCircle, Search, Filter, Plus, DollarSign, Calendar, Settings, Copy, Check } from 'lucide-react';
+import { CreditCard, CheckCircle2, AlertCircle, Search, Filter, Plus, DollarSign, Calendar, Settings, Copy, Check, FileText, Printer, ArrowRight } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { Link, useNavigate } from 'react-router-dom';
 import { format } from 'date-fns';
 
 interface FeeConfig {
@@ -14,6 +15,7 @@ interface FeeRecord {
   studentId: string;
   amount: number;
   dueDate: string;
+  subject?: string;
   status: 'paid' | 'pending';
   paymentDate?: Timestamp;
 }
@@ -25,6 +27,7 @@ interface Student {
 }
 
 export default function FeeManagement({ profile }: { profile: any }) {
+  const navigate = useNavigate();
   const [students, setStudents] = useState<Student[]>([]);
   const [fees, setFees] = useState<FeeRecord[]>([]);
   const [loading, setLoading] = useState(true);
@@ -39,6 +42,7 @@ export default function FeeManagement({ profile }: { profile: any }) {
     studentId: '',
     amount: 0,
     dueDate: format(new Date(), 'yyyy-MM-dd'),
+    subject: '',
     status: 'pending' as const
   });
 
@@ -83,7 +87,7 @@ export default function FeeManagement({ profile }: { profile: any }) {
         paymentDate: formData.status === 'paid' ? Timestamp.now() : null
       });
       setIsModalOpen(false);
-      setFormData({ studentId: '', amount: 0, dueDate: format(new Date(), 'yyyy-MM-dd'), status: 'pending' });
+      setFormData({ studentId: '', amount: 0, dueDate: format(new Date(), 'yyyy-MM-dd'), subject: '', status: 'pending' });
       fetchData();
     } catch (error) {
       console.error('Error saving fee:', error);
@@ -280,6 +284,7 @@ export default function FeeManagement({ profile }: { profile: any }) {
                     </td>
                     <td className="px-8 py-6">
                       <p className="font-black text-gray-900">PKR {fee.amount.toLocaleString()}</p>
+                      {fee.subject && <p className="text-[10px] text-blue-600 font-bold uppercase tracking-widest">{fee.subject}</p>}
                     </td>
                     <td className="px-8 py-6">
                       <div className="flex items-center gap-2 text-sm font-bold text-gray-500">
@@ -296,14 +301,25 @@ export default function FeeManagement({ profile }: { profile: any }) {
                     </td>
                     {isAdmin && (
                       <td className="px-8 py-6 text-right">
-                        <button 
-                          onClick={() => handleUpdateStatus(fee.id, fee.status === 'paid' ? 'pending' : 'paid')}
-                          className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${
-                            fee.status === 'paid' ? 'bg-gray-50 text-gray-500 hover:bg-amber-50 hover:text-amber-600' : 'bg-blue-600 text-white hover:bg-blue-700 shadow-lg shadow-blue-100'
-                          }`}
-                        >
-                          {fee.status === 'paid' ? 'Mark Pending' : 'Mark Paid'}
-                        </button>
+                        <div className="flex items-center justify-end gap-2">
+                          {fee.status === 'paid' && (
+                            <button 
+                              onClick={() => navigate('/vouchers')}
+                              className="p-2 text-blue-600 hover:bg-blue-50 rounded-xl transition-all"
+                              title="Go to Vouchers to print"
+                            >
+                              <Printer className="w-5 h-5" />
+                            </button>
+                          )}
+                          <button 
+                            onClick={() => handleUpdateStatus(fee.id, fee.status === 'paid' ? 'pending' : 'paid')}
+                            className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${
+                              fee.status === 'paid' ? 'bg-gray-50 text-gray-500 hover:bg-amber-50 hover:text-amber-600' : 'bg-blue-600 text-white hover:bg-blue-700 shadow-lg shadow-blue-100'
+                            }`}
+                          >
+                            {fee.status === 'paid' ? 'Mark Pending' : 'Mark Paid'}
+                          </button>
+                        </div>
                       </td>
                     )}
                   </tr>
@@ -361,6 +377,16 @@ export default function FeeManagement({ profile }: { profile: any }) {
                     className="w-full px-5 py-4 bg-gray-50 border-none rounded-2xl focus:ring-2 focus:ring-blue-100 font-bold text-gray-900"
                     value={formData.dueDate}
                     onChange={(e) => setFormData({...formData, dueDate: e.target.value})}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-black text-gray-400 uppercase tracking-widest mb-2">Session / Subject</label>
+                  <input 
+                    type="text" 
+                    placeholder="e.g. Test Session 1"
+                    className="w-full px-5 py-4 bg-gray-50 border-none rounded-2xl focus:ring-2 focus:ring-blue-100 font-bold text-gray-900"
+                    value={formData.subject}
+                    onChange={(e) => setFormData({...formData, subject: e.target.value})}
                   />
                 </div>
                 <div>
