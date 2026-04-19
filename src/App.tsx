@@ -60,44 +60,41 @@ export interface UserProfile {
   createdAt: Timestamp;
 }
 
-// Error Boundary (Simplified)
+// Universal Error Boundary to catch all crashes
 function ErrorBoundary({ children }: { children: React.ReactNode }) {
   const [hasError, setHasError] = useState(false);
-  const [errorInfo, setErrorInfo] = useState<string | null>(null);
+  const [errorDetails, setErrorDetails] = useState<string>('');
 
   useEffect(() => {
-    const handleError = (event: ErrorEvent) => {
-      if (event.error?.message?.startsWith('{')) {
-        setHasError(true);
-        setErrorInfo(event.error.message);
-      }
+    const errorHandler = (event: ErrorEvent) => {
+      setHasError(true);
+      setErrorDetails(event.error?.message || 'Unknown error');
     };
-    window.addEventListener('error', handleError);
-    return () => window.removeEventListener('error', handleError);
+    window.addEventListener('error', errorHandler);
+    return () => window.removeEventListener('error', errorHandler);
   }, []);
 
   if (hasError) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-red-50 p-4">
-        <div className="max-w-md w-full bg-white p-8 rounded-2xl shadow-xl border border-red-100">
-          <div className="flex items-center gap-3 text-red-600 mb-4">
-            <AlertCircle className="w-8 h-8" />
-            <h2 className="text-2xl font-bold">System Error</h2>
+      <div className="min-h-screen flex items-center justify-center bg-gray-50 p-6">
+        <div className="max-w-xl w-full bg-white p-12 rounded-[3rem] shadow-2xl text-center">
+          <div className="w-20 h-20 bg-red-100 text-red-600 rounded-3xl flex items-center justify-center mx-auto mb-8 shadow-lg shadow-red-50">
+            <AlertCircle className="w-10 h-10" />
           </div>
-          <p className="text-gray-600 mb-6 font-medium">
-            A security or database error occurred. Please contact the administrator.
-          </p>
-          <div className="bg-gray-900 p-4 rounded-lg overflow-auto max-h-48 mb-6">
-            <code className="text-xs text-green-400 break-all">
-              {errorInfo}
-            </code>
-          </div>
+          <h1 className="text-3xl font-black text-gray-900 mb-4 tracking-tight">System Restart Required</h1>
+          <p className="text-gray-500 mb-8 font-medium">A temporary glitch occurred. Please reload to restore your session.</p>
           <button 
             onClick={() => window.location.reload()}
-            className="w-full py-3 bg-red-600 text-white rounded-xl font-semibold hover:bg-red-700 transition-colors"
+            className="w-full py-4 bg-blue-600 text-white rounded-2xl font-bold hover:bg-blue-700 transition-all shadow-xl shadow-blue-100"
           >
             Reload Application
           </button>
+          <div className="mt-8 pt-8 border-t border-gray-100 text-left">
+            <p className="text-[10px] font-mono text-gray-400 uppercase tracking-widest mb-2">Technical Details</p>
+            <div className="bg-gray-50 p-4 rounded-xl text-[10px] font-mono text-gray-500 overflow-auto max-h-24">
+              {errorDetails}
+            </div>
+          </div>
         </div>
       </div>
     );
@@ -507,24 +504,24 @@ export default function App() {
           {!user ? (
             <Route path="*" element={<Login />} />
           ) : (
-            (profile!.status === 'approved' || profile!.email === "nawazidrees4323@gmail.com") ? (
-              <Route path="/" element={<Layout user={user} profile={profile!} pendingCount={pendingCount} />}>
-                <Route index element={<DashboardRouter profile={profile!} />} />
-                <Route path="users" element={profile!.role === 'admin' ? <UserManagement /> : <Navigate to="/" />} />
-                <Route path="courses" element={profile!.role === 'admin' ? <CourseManagement /> : <Navigate to="/" />} />
-                <Route path="attendance" element={<Attendance profile={profile!} />} />
-                <Route path="fees" element={(profile!.role === 'admin' || profile!.role === 'student') ? <FeeManagement profile={profile!} /> : <Navigate to="/" />} />
-                <Route path="assignments" element={<Assignments profile={profile!} />} />
-                <Route path="quizzes" element={<Quizzes profile={profile!} />} />
-                <Route path="quiz-schedule" element={<QuizSchedule profile={profile!} />} />
-                <Route path="resources" element={<Resources profile={profile!} />} />
-                <Route path="vouchers" element={<VoucherDetail profile={profile!} />} />
+            profile && (profile.status === 'approved' || profile.email === "nawazidrees4323@gmail.com") ? (
+              <Route path="/" element={<Layout user={user} profile={profile} pendingCount={pendingCount} />}>
+                <Route index element={<DashboardRouter profile={profile} />} />
+                <Route path="users" element={profile.role === 'admin' ? <UserManagement /> : <Navigate to="/" />} />
+                <Route path="courses" element={profile.role === 'admin' ? <CourseManagement /> : <Navigate to="/" />} />
+                <Route path="attendance" element={<Attendance profile={profile} />} />
+                <Route path="fees" element={(profile.role === 'admin' || profile.role === 'student') ? <FeeManagement profile={profile} /> : <Navigate to="/" />} />
+                <Route path="assignments" element={<Assignments profile={profile} />} />
+                <Route path="quizzes" element={<Quizzes profile={profile} />} />
+                <Route path="quiz-schedule" element={<QuizSchedule profile={profile} />} />
+                <Route path="resources" element={<Resources profile={profile} />} />
+                <Route path="vouchers" element={<VoucherDetail profile={profile} />} />
                 <Route path="about" element={<AboutAcademy />} />
-                <Route path="notifications" element={<Notifications profile={profile!} />} />
+                <Route path="notifications" element={<Notifications profile={profile} />} />
               </Route>
-            ) : (
-              <Route path="*" element={<PendingApproval profile={profile!} />} />
-            )
+            ) : profile ? (
+              <Route path="*" element={<PendingApproval profile={profile} />} />
+            ) : null
           )}
         </Routes>
       </Router>
