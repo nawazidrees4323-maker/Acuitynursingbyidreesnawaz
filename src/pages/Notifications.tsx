@@ -63,6 +63,7 @@ export default function Notifications({ profile }: { profile: any }) {
 
   const handleSendNotification = async (e: React.FormEvent) => {
     e.preventDefault();
+    let emailSentStatus = '';
     try {
       const id = Math.random().toString(36).substr(2, 9);
       const notificationData = {
@@ -108,16 +109,27 @@ export default function Notifications({ profile }: { profile: any }) {
             })
           });
 
-          if (!response.ok) {
-            const errorData = await response.json();
-            throw new Error(errorData.error || 'Failed to send email API call');
+          const responseText = await response.text();
+          let result: any = {};
+          try {
+            result = responseText ? JSON.parse(responseText) : {};
+          } catch (e) {
+            console.error('Failed to parse JSON response:', responseText);
+            throw new Error(`Server returned non-JSON response (Status ${response.status}). This usually means the API endpoint is missing or the server crashed.`);
           }
+
+          if (!response.ok) {
+            throw new Error(result.error || `Server Error ${response.status}: ${responseText.substring(0, 100)}`);
+          }
+          
+          console.log('Email API Success:', result);
+          emailSentStatus = ` and ${recipients.length} emails sent`;
         }
       }
 
       setIsModalOpen(false);
       setFormData({ recipientId: 'all', category: 'general', sendEmail: false, title: '', message: '' });
-      alert('Notification sent successfully!');
+      alert(`Notification saved successfully${emailSentStatus}!`);
     } catch (error: any) {
       console.error('Error sending notification:', error);
       alert(`Error: ${error.message || 'Failed to send notification'}`);
