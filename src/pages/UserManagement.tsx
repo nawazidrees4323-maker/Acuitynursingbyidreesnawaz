@@ -87,9 +87,9 @@ export default function UserManagement() {
       await setDoc(doc(db, 'notifications', notificationId), {
         id: notificationId,
         recipientId: user.uid,
+        category: 'fee',
         title: 'Fee Payment Required',
         message: `Dear ${user.name}, your account is currently pending fee payment. Please pay your fees to the account details mentioned in the Fee Management section and share the receipt for approval.`,
-        type: 'alert',
         read: false,
         createdAt: Timestamp.now()
       });

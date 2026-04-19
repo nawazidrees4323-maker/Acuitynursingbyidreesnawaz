@@ -10,6 +10,46 @@ async function startServer() {
   const app = express();
   const PORT = 3000;
 
+  app.use(express.json());
+
+  // API routes
+  app.post("/api/send-email", async (req, res) => {
+    try {
+      const { to, subject, body } = req.body;
+      const { default: nodemailer } = await import("nodemailer");
+
+      const user = process.env.EMAIL_USER;
+      const pass = process.env.EMAIL_PASS;
+
+      if (!user || !pass) {
+        return res.status(500).json({ error: "Email credentials not configured in environment variables (EMAIL_USER, EMAIL_PASS)." });
+      }
+
+      const transporter = nodemailer.createTransport({
+        service: "gmail",
+        auth: { user, pass },
+      });
+
+      await transporter.sendMail({
+        from: `"Acuity Nursing Academy" <${user}>`,
+        to,
+        subject,
+        text: body,
+        html: `<div style="font-family: sans-serif; padding: 20px; border: 1px solid #eee; border-radius: 10px;">
+                <h2 style="color: #2563eb;">${subject}</h2>
+                <div style="line-height: 1.6; color: #444;">${body.replace(/\n/g, '<br>')}</div>
+                <hr style="margin-top: 20px; border: 0; border-top: 1px solid #eee;">
+                <p style="font-size: 12px; color: #999;">Sent from Acuity Nursing Academy Admin Panel</p>
+              </div>`,
+      });
+
+      res.status(200).json({ success: true });
+    } catch (error: any) {
+      console.error("Email error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({

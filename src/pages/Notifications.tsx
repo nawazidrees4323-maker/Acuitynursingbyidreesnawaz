@@ -7,6 +7,7 @@ import { format } from 'date-fns';
 interface Notification {
   id: string;
   recipientId: string;
+  category?: 'fee' | 'quiz' | 'announcement' | 'general';
   title: string;
   message: string;
   createdAt: Timestamp;
@@ -16,6 +17,7 @@ interface Notification {
 interface UserProfile {
   uid: string;
   name: string;
+  email: string;
   role: string;
 }
 
@@ -27,6 +29,8 @@ export default function Notifications({ profile }: { profile: any }) {
 
   const [formData, setFormData] = useState({
     recipientId: 'all',
+    category: 'general' as const,
+    sendEmail: false,
     title: '',
     message: ''
   });
@@ -45,7 +49,12 @@ export default function Notifications({ profile }: { profile: any }) {
 
     const fetchUsers = async () => {
       const usersSnap = await getDocs(collection(db, 'users'));
-      setUsers(usersSnap.docs.map(doc => ({ uid: doc.id, name: doc.data().name, role: doc.data().role })));
+      setUsers(usersSnap.docs.map(doc => ({ 
+        uid: doc.id, 
+        name: doc.data().name, 
+        email: doc.data().email,
+        role: doc.data().role 
+      })));
     };
 
     fetchUsers();
@@ -56,16 +65,52 @@ export default function Notifications({ profile }: { profile: any }) {
     e.preventDefault();
     try {
       const id = Math.random().toString(36).substr(2, 9);
-      await setDoc(doc(db, 'notifications', id), {
+      const notificationData = {
         id,
-        ...formData,
+        recipientId: formData.recipientId,
+        category: formData.category,
+        title: formData.title,
+        message: formData.message,
         createdAt: Timestamp.now(),
         read: false
-      });
+      };
+
+      // 1. Save in-app notification to Firestore
+      await setDoc(doc(db, 'notifications', id), notificationData);
+
+      // 2. Send email if requested
+      if (formData.sendEmail) {
+        const recipients = formData.recipientId === 'all' 
+          ? users.filter(u => u.role === 'student').map(u => u.email)
+          : users.filter(u => u.uid === formData.recipientId).map(u => u.email);
+
+        if (recipients.length > 0) {
+          const emailBody = `
+            Category: ${formData.category.toUpperCase()}
+            
+            ${formData.message}
+            
+            This is an automated notification from Acuity Nursing Academy.
+          `;
+
+          await fetch('/api/send-email', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              to: recipients,
+              subject: `[${formData.category.toUpperCase()}] ${formData.title}`,
+              body: emailBody
+            })
+          });
+        }
+      }
+
       setIsModalOpen(false);
-      setFormData({ recipientId: 'all', title: '', message: '' });
-    } catch (error) {
+      setFormData({ recipientId: 'all', category: 'general', sendEmail: false, title: '', message: '' });
+      alert('Notification sent successfully!');
+    } catch (error: any) {
       console.error('Error sending notification:', error);
+      alert(`Error: ${error.message || 'Failed to send notification'}`);
     }
   };
 
@@ -123,9 +168,19 @@ export default function Notifications({ profile }: { profile: any }) {
               </div>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center justify-between mb-1">
-                  <h3 className={`text-lg font-bold truncate ${notif.read ? 'text-gray-700' : 'text-gray-900'}`}>
-                    {notif.title}
-                  </h3>
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className={`px-2 py-0.5 rounded-md text-[10px] font-black uppercase tracking-widest shrink-0 ${
+                      notif.category === 'fee' ? 'bg-amber-100 text-amber-600' :
+                      notif.category === 'quiz' ? 'bg-purple-100 text-purple-600' :
+                      notif.category === 'announcement' ? 'bg-red-100 text-red-600' :
+                      'bg-gray-100 text-gray-500'
+                    }`}>
+                      {notif.category || 'general'}
+                    </span>
+                    <h3 className={`text-lg font-bold truncate ${notif.read ? 'text-gray-700' : 'text-gray-900'}`}>
+                      {notif.title}
+                    </h3>
+                  </div>
                   <div className="flex items-center gap-2 text-xs font-bold text-gray-400 shrink-0 ml-4">
                     <Clock className="w-3.5 h-3.5" />
                     {format(notif.createdAt.toDate(), 'MMM d, h:mm a')}
@@ -182,18 +237,50 @@ export default function Notifications({ profile }: { profile: any }) {
                 </button>
               </div>
               <form onSubmit={handleSendNotification} className="p-8 space-y-6">
-                <div>
-                  <label className="block text-sm font-black text-gray-400 uppercase tracking-widest mb-2">Recipient</label>
-                  <select 
-                    required
-                    className="w-full px-5 py-4 bg-gray-50 border-none rounded-2xl focus:ring-2 focus:ring-blue-100 font-bold text-gray-900"
-                    value={formData.recipientId}
-                    onChange={(e) => setFormData({...formData, recipientId: e.target.value})}
-                  >
-                    <option value="all">All Students & Teachers</option>
-                    {users.map(u => <option key={u.uid} value={u.uid}>{u.name} ({u.role})</option>)}
-                  </select>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                  <div>
+                    <label className="block text-sm font-black text-gray-400 uppercase tracking-widest mb-2">Recipient</label>
+                    <select 
+                      required
+                      className="w-full px-5 py-4 bg-gray-50 border-none rounded-2xl focus:ring-2 focus:ring-blue-100 font-bold text-gray-900"
+                      value={formData.recipientId}
+                      onChange={(e) => setFormData({...formData, recipientId: e.target.value})}
+                    >
+                      <option value="all">All Students & Teachers</option>
+                      {users.map(u => <option key={u.uid} value={u.uid}>{u.name} ({u.role})</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-black text-gray-400 uppercase tracking-widest mb-2">Category</label>
+                    <select 
+                      required
+                      className="w-full px-5 py-4 bg-gray-50 border-none rounded-2xl focus:ring-2 focus:ring-blue-100 font-bold text-gray-900"
+                      value={formData.category}
+                      onChange={(e) => setFormData({...formData, category: e.target.value as any})}
+                    >
+                      <option value="general">General</option>
+                      <option value="fee">Fee/Payment</option>
+                      <option value="quiz">Quiz/Result</option>
+                      <option value="announcement">Important Notice</option>
+                    </select>
+                  </div>
                 </div>
+
+                <div>
+                  <label className="flex items-center gap-3 p-4 bg-blue-50 rounded-2xl border border-blue-100 cursor-pointer hover:bg-blue-100/50 transition-all group">
+                    <input 
+                      type="checkbox"
+                      className="w-5 h-5 rounded border-blue-200 text-blue-600 focus:ring-blue-500"
+                      checked={formData.sendEmail}
+                      onChange={(e) => setFormData({...formData, sendEmail: e.target.checked})}
+                    />
+                    <div>
+                      <span className="block text-sm font-black text-blue-700 uppercase tracking-widest">Send also as Email</span>
+                      <span className="text-xs text-blue-500 font-medium">This will send a copy to the student's Gmail address</span>
+                    </div>
+                  </label>
+                </div>
+
                 <div>
                   <label className="block text-sm font-black text-gray-400 uppercase tracking-widest mb-2">Title</label>
                   <input 
