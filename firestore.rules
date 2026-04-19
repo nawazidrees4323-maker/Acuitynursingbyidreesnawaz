@@ -100,34 +100,37 @@ service cloud.firestore {
       return isAuthenticated() && request.auth.uid == userId;
     }
 
+    // Hardened Admin Check: Check email first to avoid get() overhead and potential failures
     function isAdmin() {
-      return isAuthenticated() &&
-        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
-          request.auth.token.email == "nawazidrees4323@gmail.com");
+      return isAuthenticated() && (
+        request.auth.token.email == "nawazidrees4323@gmail.com" ||
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin'
+      );
     }
 
     function isTeacher() {
-      return isAuthenticated() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'teacher';
+      return isAuthenticated() && 
+             exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'teacher';
     }
 
     function isStudent() {
-      return isAuthenticated() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'student';
+      return isAuthenticated() && 
+             exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'student';
+    }
+
+    function isApproved() {
+      return isAuthenticated() && (
+        isAdmin() || 
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.status == 'approved')
+      );
     }
 
     function hasRequiredFields(fields) {
       return request.resource.data.keys().hasAll(fields);
-    }
-
-    function hasOnlyAllowedFields(fields) {
-      return request.resource.data.keys().hasOnly(fields);
-    }
-
-    function isValidEmail(email) {
-      return email is string && email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
-    }
-
-    function isValidUrl(url) {
-      return url is string && (url.matches("^https://.*") || url.matches("^http://.*"));
     }
 
     // ===============================================================
@@ -135,23 +138,9 @@ service cloud.firestore {
     // ===============================================================
 
     function isValidUser(data) {
-      return hasRequiredFields(['uid', 'name', 'email', 'role', 'status', 'createdAt']) &&
-             data.uid is string && data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
-             isValidEmail(data.email) &&
-             data.role in ['admin', 'teacher', 'student'] &&
-             data.status in ['pending', 'approved', 'rejected'] &&
-             data.createdAt is timestamp;
-    }
-
-    function isApproved() {
-      return isAuthenticated() && 
-             (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.status == 'approved' || isAdmin());
-    }
-
-    function isValidCourse(data) {
-      return hasRequiredFields(['name', 'semester']) &&
-             data.name is string && data.name.size() > 0 && data.name.size() < 200 &&
-             data.semester is int && data.semester >= 1 && data.semester <= 10;
+      return data.uid is string && data.name is string && 
+             data.email is string && data.role is string && 
+             data.status is string && data.createdAt is timestamp;
     }
 
     // ===============================================================
@@ -159,10 +148,10 @@ service cloud.firestore {
     // ===============================================================
 
     match /users/{uid} {
-      allow read: if isAuthenticated();
-      allow create: if isAuthenticated() && isValidUser(request.resource.data) && (isOwner(uid) || isAdmin());
-      allow update: if isAuthenticated() && isValidUser(request.resource.data) && (isOwner(uid) || isAdmin()) && 
-                    ((request.resource.data.role == resource.data.role && request.resource.data.status == resource.data.status) || isAdmin());
+      allow get: if isAuthenticated();
+      allow list: if isAdmin(); // Only admins can list all users
+      allow create: if isAuthenticated() && (isOwner(uid) || isAdmin());
+      allow update: if isAuthenticated() && (isOwner(uid) || isAdmin());
       allow delete: if isAdmin();
     }
 
@@ -177,14 +166,15 @@ service cloud.firestore {
     }
 
     match /attendance/{attendanceId} {
-      allow read: if isApproved();
+      allow get, list: if isApproved();
       allow create: if isAdmin() || isTeacher();
       allow update: if isAdmin() || isTeacher();
       allow delete: if isAdmin();
     }
 
     match /fees/{feeId} {
-      allow read: if isAdmin() || (isStudent() && isApproved() && request.auth.uid == resource.data.studentId);
+      allow get: if isAdmin() || (isAuthenticated() && request.auth.uid == resource.data.studentId);
+      allow list: if isAdmin() || (isAuthenticated() && resource.data.studentId == request.auth.uid);
       allow write: if isAdmin();
     }
 
@@ -211,15 +201,17 @@ service cloud.firestore {
     }
 
     match /quiz_results/{resultId} {
-      allow read: if isApproved();
+      allow get: if isApproved() && (request.auth.uid == resource.data.studentId || isAdmin() || isTeacher());
+      allow list: if isApproved() && (resource.data.studentId == request.auth.uid || isAdmin() || isTeacher());
       allow create: if isApproved() && request.auth.uid == request.resource.data.studentId;
       allow update, delete: if isAdmin();
     }
 
     match /submissions/{submissionId} {
-      allow read: if isAdmin() || isTeacher() || (isStudent() && isApproved() && request.auth.uid == resource.data.studentId);
+      allow get: if isAdmin() || isTeacher() || (isAuthenticated() && request.auth.uid == resource.data.studentId);
+      allow list: if isAdmin() || isTeacher() || (isAuthenticated() && resource.data.studentId == request.auth.uid);
       allow create: if isStudent() && isApproved() && request.auth.uid == request.resource.data.studentId;
-      allow update: if isAdmin() || isTeacher() || (isStudent() && isApproved() && request.auth.uid == resource.data.studentId);
+      allow update: if isAdmin() || isTeacher() || (isAuthenticated() && request.auth.uid == resource.data.studentId);
       allow delete: if isAdmin();
     }
 
@@ -229,7 +221,8 @@ service cloud.firestore {
     }
 
     match /notifications/{notificationId} {
-      allow read: if isAuthenticated() && (resource.data.recipientId == request.auth.uid || resource.data.recipientId == 'all');
+      allow get: if isAuthenticated() && (resource.data.recipientId == request.auth.uid || resource.data.recipientId == 'all' || isAdmin());
+      allow list: if isAuthenticated() && (resource.data.recipientId == request.auth.uid || resource.data.recipientId == 'all' || isAdmin());
       allow create: if isAdmin() || isTeacher();
       allow update: if isAuthenticated() && (resource.data.recipientId == request.auth.uid);
       allow delete: if isAdmin();
@@ -241,12 +234,13 @@ service cloud.firestore {
     }
 
     match /vouchers/{voucherId} {
-      allow read: if isAdmin() || (isStudent() && isApproved() && request.auth.uid == resource.data.studentId);
+      allow get: if isAdmin() || (isAuthenticated() && request.auth.uid == resource.data.studentId);
+      allow list: if isAdmin() || (isAuthenticated() && resource.data.studentId == request.auth.uid);
       allow write: if isAdmin();
     }
 
     match /settings/{settingId} {
-      allow read: if isAuthenticated();
+      allow get, list: if isAuthenticated();
       allow write: if isAdmin();
     }
   }
