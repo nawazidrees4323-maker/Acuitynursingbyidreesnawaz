@@ -42,6 +42,7 @@ import Assignments from './pages/Assignments';
 import Resources from './pages/Resources';
 import Notifications from './pages/Notifications';
 import Quizzes from './pages/Quizzes';
+import QuizSchedule from './pages/QuizSchedule';
 import AboutAcademy from './pages/AboutAcademy';
 
 // Types
@@ -131,12 +132,12 @@ function PendingApproval({ profile }: { profile: UserProfile }) {
         </div>
         
         <h1 className="text-3xl font-black text-gray-900 mb-4 tracking-tight">
-          {profile.status === 'rejected' ? 'Access Denied' : 'Fee Payment Required'}
+          {profile.status === 'rejected' ? 'Access Denied' : 'Account Blocked / Pending Approval'}
         </h1>
         <p className="text-gray-500 mb-8 font-medium leading-relaxed">
           {profile.status === 'rejected' 
             ? 'Your registration request has been rejected by the administrator. Please contact support if you believe this is an error.' 
-            : 'Welcome to Acuity Nursing! To gain full access to the test sessions and study materials, please complete your fee payment.'}
+            : 'Apka account filhal Pending status par hai. Fee jama na hone ki wajah se ya verification ki wajah se access rok di gayi hai. Baraye meherbani fee pay karein aur uski screenshot admin ke sath share karein taake apka account login continue rahay.'}
         </p>
 
         {profile.status === 'pending' && feeConfig && (
@@ -200,6 +201,7 @@ function Layout({ user, profile, pendingCount }: { user: FirebaseUser, profile: 
     { name: 'Fees', path: '/fees', icon: CreditCard, roles: ['admin', 'student'] },
     { name: 'Assignments', path: '/assignments', icon: FileText, roles: ['admin', 'teacher', 'student'] },
     { name: 'Quizzes', path: '/quizzes', icon: BrainCircuit, roles: ['admin', 'teacher', 'student'] },
+    { name: 'Quiz Schedule', path: '/quiz-schedule', icon: Calendar, roles: ['admin', 'teacher', 'student'] },
     { name: 'Library', path: '/resources', icon: Library, roles: ['admin', 'teacher', 'student'] },
     { name: 'About Academy', path: '/about', icon: Info, roles: ['admin', 'teacher', 'student'] },
     { name: 'Notifications', path: '/notifications', icon: Bell, roles: ['admin', 'teacher', 'student'] },
@@ -511,6 +513,7 @@ export default function App() {
                 <Route path="fees" element={(profile!.role === 'admin' || profile!.role === 'student') ? <FeeManagement profile={profile!} /> : <Navigate to="/" />} />
                 <Route path="assignments" element={<Assignments profile={profile!} />} />
                 <Route path="quizzes" element={<Quizzes profile={profile!} />} />
+                <Route path="quiz-schedule" element={<QuizSchedule profile={profile!} />} />
                 <Route path="resources" element={<Resources profile={profile!} />} />
                 <Route path="about" element={<AboutAcademy />} />
                 <Route path="notifications" element={<Notifications profile={profile!} />} />

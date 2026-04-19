@@ -164,6 +164,21 @@
         "read": { "type": "boolean" }
       },
       "required": ["recipientId", "title", "message", "createdAt"]
+    },
+    "QuizSchedule": {
+      "title": "QuizSchedule",
+      "description": "Represents a weekly or monthly quiz schedule.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "date": { "type": "string", "format": "date" },
+        "day": { "type": "string" },
+        "subject": { "type": "string" },
+        "topic": { "type": "string" },
+        "time": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["date", "subject", "topic"]
     }
   },
   "firestore": {
@@ -176,6 +191,7 @@
     "/submissions/{submissionId}": { "schema": "Submission", "description": "Student submissions" },
     "/resources/{resourceId}": { "schema": "Resource", "description": "Learning resources" },
     "/quizzes/{quizId}": { "schema": "Quiz", "description": "Quiz definitions" },
-    "/notifications/{notificationId}": { "schema": "Notification", "description": "User notifications" }
+    "/notifications/{notificationId}": { "schema": "Notification", "description": "User notifications" },
+    "/quiz_schedule/{scheduleId}": { "schema": "QuizSchedule", "description": "Weekly quiz schedules" }
   }
 }
