@@ -160,6 +160,13 @@ service cloud.firestore {
       allow write: if isAdmin() || isTeacher();
     }
 
+    match /submissions/{submissionId} {
+      allow read: if isApproved();
+      allow create: if isApproved() && request.auth.uid == request.resource.data.studentId;
+      allow update: if isApproved() && (isAdmin() || isTeacher() || request.auth.uid == resource.data.studentId);
+      allow delete: if isAdmin();
+    }
+
     match /quizzes/{quizId} {
       allow read: if isApproved();
       allow write: if isAdmin() || isTeacher();
@@ -189,6 +196,11 @@ service cloud.firestore {
     }
 
     match /quiz_schedule/{scheduleId} {
+      allow read: if isApproved();
+      allow write: if isAdmin() || isTeacher();
+    }
+
+    match /question_bank/{questionId} {
       allow read: if isApproved();
       allow write: if isAdmin() || isTeacher();
     }

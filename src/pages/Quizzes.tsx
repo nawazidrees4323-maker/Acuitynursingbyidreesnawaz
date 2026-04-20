@@ -453,7 +453,14 @@ export default function Quizzes({ profile }: { profile: UserProfile }) {
       fetchQuizzes();
     } catch (error) {
       console.error('Error saving quiz:', error);
-      alert('Failed to save quiz. Please check your connection and try again.');
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      if (errorMessage.includes('permission-denied')) {
+        alert('Access Denied: You do not have permission to save quizzes. Please contact admin.');
+      } else if (errorMessage.includes('quota-exceeded')) {
+        alert('Database quota exceeded. Please contact admin or try again tomorrow.');
+      } else {
+        alert(`Failed to save quiz: ${errorMessage}. Please check your connection and try again.`);
+      }
     }
   };
 
