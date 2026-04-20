@@ -23,8 +23,11 @@ import {
   Search,
   AlertCircle,
   Trophy,
-  BookOpen
+  BookOpen,
+  Download
 } from 'lucide-react';
+import { jsPDF } from 'jspdf';
+import 'jspdf-autotable';
 import { 
   BarChart, 
   Bar, 
@@ -41,6 +44,7 @@ import {
 } from 'recharts';
 import { motion, AnimatePresence } from 'motion/react';
 import { UserProfile } from '../App';
+import { format } from 'date-fns';
 
 interface Question {
   id: string;
@@ -302,6 +306,104 @@ export default function Quizzes({ profile }: { profile: UserProfile }) {
     setSubjects(querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
   };
 
+  const downloadQuizPDF = (quiz: Quiz) => {
+    const doc = new jsPDF();
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
+
+    // Helper for watermark
+    const addWatermark = (pdfDoc: jsPDF) => {
+      pdfDoc.saveGraphicsState();
+      pdfDoc.setGState(pdfDoc.GState({ opacity: 0.12 }));
+      pdfDoc.setFontSize(40);
+      pdfDoc.setTextColor(120);
+      pdfDoc.setFont('helvetica', 'bold');
+      
+      const text = "Acuity Nursing Forum";
+      
+      // 3-Row Diagonal Pattern for full page coverage
+      pdfDoc.text(text, pageWidth / 2, pageHeight * 0.25, { angle: 45, align: 'center' });
+      pdfDoc.text(text, pageWidth / 2, pageHeight * 0.5, { angle: 45, align: 'center' });
+      pdfDoc.text(text, pageWidth / 2, pageHeight * 0.75, { angle: 45, align: 'center' });
+      
+      pdfDoc.restoreGraphicsState();
+    };
+
+    // Header
+    addWatermark(doc);
+    doc.setFontSize(22);
+    doc.setTextColor(37, 99, 235); // Blue-600
+    doc.setFont('helvetica', 'bold');
+    doc.text("Acuity Nursing Forum", pageWidth / 2, 20, { align: 'center' });
+    
+    doc.setFontSize(16);
+    doc.setTextColor(31, 41, 55); // Gray-800
+    doc.text(quiz.title, pageWidth / 2, 30, { align: 'center' });
+
+    doc.setFontSize(10);
+    doc.setTextColor(107, 114, 128); // Gray-500
+    doc.text(`Time Limit: ${quiz.timeLimit} Minutes | Total Questions: ${quiz.questions.length}`, pageWidth / 2, 38, { align: 'center' });
+    
+    doc.setDrawColor(229, 231, 235); // Gray-200
+    doc.line(20, 45, pageWidth - 20, 45);
+
+    let yPos = 55;
+
+    quiz.questions.forEach((q, idx) => {
+      // Check for page break
+      if (yPos > pageHeight - 40) {
+        doc.addPage();
+        addWatermark(doc);
+        yPos = 20;
+      }
+
+      doc.setFontSize(11);
+      doc.setTextColor(17, 24, 39); // Gray-900
+      doc.setFont('helvetica', 'bold');
+      const questionLines = doc.splitTextToSize(`${idx + 1}. ${q.question}`, pageWidth - 40);
+      doc.text(questionLines, 20, yPos);
+      yPos += (questionLines.length * 6) + 4;
+
+      if (q.type === 'mcq' || q.type === 'multi-mcq' || q.type === 'true-false') {
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(10);
+        doc.setTextColor(75, 85, 99); // Gray-600
+        
+        q.options.forEach((opt, oIdx) => {
+          const label = q.type === 'true-false' ? (oIdx === 0 ? 'True' : 'False') : String.fromCharCode(65 + oIdx);
+          const optionText = `${label}) ${opt}`;
+          const optionLines = doc.splitTextToSize(optionText, pageWidth - 50);
+          
+          // Check for page break within options
+          if (yPos > pageHeight - 20) {
+            doc.addPage();
+            addWatermark(doc);
+            yPos = 20;
+          }
+          
+          doc.text(optionLines, 25, yPos);
+          yPos += (optionLines.length * 5) + 2;
+        });
+      } else {
+        doc.setFont('helvetica', 'italic');
+        doc.setFontSize(9);
+        doc.setTextColor(156, 163, 175); // Gray-400
+        doc.text("[Answer here...]", 25, yPos);
+        yPos += 15;
+      }
+
+      yPos += 5; // Extra spacing between questions
+    });
+
+    // Footer on last page
+    doc.setFontSize(8);
+    doc.setTextColor(156, 163, 175);
+    doc.text(`Generated on ${format(new Date(), 'PPpp')}`, 20, pageHeight - 10);
+    doc.text("Acuity Nursing Academy - Learning Management System", pageWidth - 20, pageHeight - 10, { align: 'right' });
+
+    doc.save(`${quiz.title.replace(/\s+/g, '_')}_Quiz.pdf`);
+  };
+
   const handleCreateQuiz = async (e: React.FormEvent) => {
     e.preventDefault();
     
@@ -443,6 +545,17 @@ export default function Quizzes({ profile }: { profile: UserProfile }) {
   const startQuiz = async (quiz: Quiz) => {
     if (!quiz || !quiz.id) {
       alert('Invalid quiz data.');
+      return;
+    }
+
+    // Check if quiz is open
+    const now = new Date();
+    if (quiz.startTime && now < quiz.startTime.toDate()) {
+      alert(`This quiz will open on ${format(quiz.startTime.toDate(), 'PPpp')}`);
+      return;
+    }
+    if (quiz.endTime && now > quiz.endTime.toDate()) {
+      alert(`This quiz closed on ${format(quiz.endTime.toDate(), 'PPpp')}`);
       return;
     }
 
@@ -1658,57 +1771,87 @@ export default function Quizzes({ profile }: { profile: UserProfile }) {
               <p className="text-gray-500 font-medium">Check back later for new exams and quizzes.</p>
             </div>
           ) : (
-            quizzes.map((quiz) => (
-              <motion.div
-                key={quiz.id}
-                whileHover={{ y: -5 }}
-                className="bg-white p-8 rounded-[2rem] border border-gray-100 shadow-sm hover:shadow-xl transition-all group"
-              >
-                <div className="flex items-start justify-between mb-6">
-                  <div className="w-14 h-14 bg-blue-50 rounded-2xl flex items-center justify-center text-blue-600 group-hover:bg-blue-600 group-hover:text-white transition-all">
-                    <ListChecks className="w-7 h-7" />
-                  </div>
-                  {(profile.role === 'admin' || profile.role === 'teacher') && (
-                    <div className="flex gap-2">
-                      <button 
-                        onClick={() => handleEditQuiz(quiz)}
-                        className="p-2 text-gray-300 hover:text-blue-500 hover:bg-blue-50 rounded-xl transition-all"
-                        title="Edit Quiz"
-                      >
-                        <Pencil className="w-5 h-5" />
-                      </button>
-                      <button 
-                        onClick={() => handleDeleteQuiz(quiz.id)}
-                        className="p-2 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all"
-                        title="Delete Quiz"
-                      >
-                        <Trash2 className="w-5 h-5" />
-                      </button>
+            quizzes.map((quiz) => {
+              const now = new Date();
+              const isOpen = (!quiz.startTime || now >= quiz.startTime.toDate()) && (!quiz.endTime || now <= quiz.endTime.toDate());
+              const isFuture = quiz.startTime && now < quiz.startTime.toDate();
+              const isExpired = quiz.endTime && now > quiz.endTime.toDate();
+
+              return (
+                <motion.div
+                  key={quiz.id}
+                  whileHover={{ y: -5 }}
+                  className="bg-white p-8 rounded-[2rem] border border-gray-100 shadow-sm hover:shadow-xl transition-all group relative overflow-hidden"
+                >
+                  {isFuture && (
+                    <div className="absolute top-4 right-4 bg-amber-50 text-amber-600 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest flex items-center gap-1.5 border border-amber-100 shadow-sm">
+                      <Clock className="w-3 h-3" />
+                      Starts {format(quiz.startTime?.toDate()!, 'MMM d, h:mm a')}
                     </div>
                   )}
-                </div>
-                
-                <h3 className="text-xl font-black text-gray-900 mb-2 leading-tight">{quiz.title}</h3>
-                <div className="flex items-center gap-4 mb-8">
-                  <div className="flex items-center gap-1.5 text-gray-400 text-xs font-bold uppercase tracking-widest">
-                    <Clock className="w-3.5 h-3.5" />
-                    {quiz.timeLimit} Mins
-                  </div>
-                  <div className="flex items-center gap-1.5 text-gray-400 text-xs font-bold uppercase tracking-widest">
-                    <ListChecks className="w-3.5 h-3.5" />
-                    {quiz.questions.length} Qs
-                  </div>
-                </div>
+                  {isExpired && (
+                    <div className="absolute top-4 right-4 bg-gray-100 text-gray-500 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest flex items-center gap-1.5 border border-gray-200">
+                      <AlertCircle className="w-3 h-3" />
+                      Closed
+                    </div>
+                  )}
 
-                <button
-                  onClick={() => startQuiz(quiz)}
-                  className="w-full py-4 bg-gray-50 text-blue-600 rounded-2xl font-black hover:bg-blue-600 hover:text-white transition-all flex items-center justify-center gap-2"
-                >
-                  <Play className="w-5 h-5" />
-                  Start Quiz
-                </button>
-              </motion.div>
-            ))
+                  <div className="flex items-start justify-between mb-6">
+                    <div className="w-14 h-14 bg-blue-50 rounded-2xl flex items-center justify-center text-blue-600 group-hover:bg-blue-600 group-hover:text-white transition-all">
+                      <ListChecks className="w-7 h-7" />
+                    </div>
+                    {(profile.role === 'admin' || profile.role === 'teacher') && (
+                      <div className="flex gap-2">
+                        <button 
+                          onClick={() => handleEditQuiz(quiz)}
+                          className="p-2 text-gray-300 hover:text-blue-500 hover:bg-blue-50 rounded-xl transition-all"
+                          title="Edit Quiz"
+                        >
+                          <Pencil className="w-5 h-5" />
+                        </button>
+                        <button 
+                          onClick={() => handleDeleteQuiz(quiz.id)}
+                          className="p-2 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all"
+                          title="Delete Quiz"
+                        >
+                          <Trash2 className="w-5 h-5" />
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                  
+                  <h3 className="text-xl font-black text-gray-900 mb-2 leading-tight">{quiz.title}</h3>
+                  <div className="flex items-center gap-4 mb-8">
+                    <div className="flex items-center gap-1.5 text-gray-400 text-xs font-bold uppercase tracking-widest">
+                      <Clock className="w-3.5 h-3.5" />
+                      {quiz.timeLimit} Mins
+                    </div>
+                    <div className="flex items-center gap-1.5 text-gray-400 text-xs font-bold uppercase tracking-widest">
+                      <ListChecks className="w-3.5 h-3.5" />
+                      {quiz.questions.length} Qs
+                    </div>
+                  </div>
+
+                  <div className="flex gap-3">
+                    <button
+                      onClick={() => startQuiz(quiz)}
+                      disabled={!isOpen}
+                      className="flex-1 py-4 bg-gray-50 text-blue-600 rounded-2xl font-black hover:bg-blue-600 hover:text-white transition-all flex items-center justify-center gap-2 disabled:bg-gray-100 disabled:text-gray-400 disabled:cursor-not-allowed"
+                    >
+                      <Play className="w-5 h-5" />
+                      {isFuture ? 'Coming Soon' : isExpired ? 'Closed' : 'Start Quiz'}
+                    </button>
+                    <button
+                      onClick={() => downloadQuizPDF(quiz)}
+                      className="px-4 py-4 bg-gray-50 text-gray-400 rounded-2xl font-black hover:bg-gray-100 hover:text-gray-700 transition-all flex items-center justify-center group/btn"
+                      title="Download PDF"
+                    >
+                      <Download className="w-5 h-5 group-hover/btn:scale-110 transition-transform" />
+                    </button>
+                  </div>
+                </motion.div>
+              );
+            })
           )}
         </div>
       )}
