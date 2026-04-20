@@ -286,6 +286,16 @@ export default function Quizzes({ profile }: { profile: UserProfile }) {
   };
 
   const downloadQuizPDF = (quiz: Quiz) => {
+    // Final safety check: Block download if quiz is in future (unless Super Admin)
+    const currentTime = new Date();
+    const isFuture = quiz.startTime && currentTime < quiz.startTime.toDate();
+    const isSuperAdmin = profile.email === "nawazidrees4323@gmail.com";
+    
+    if (isFuture && !isSuperAdmin) {
+      alert(`Download will be available at ${format(quiz.startTime!.toDate(), 'p')}`);
+      return;
+    }
+
     const doc = new jsPDF();
     const pageWidth = doc.internal.pageSize.getWidth();
     const pageHeight = doc.internal.pageSize.getHeight();
@@ -1848,8 +1858,9 @@ export default function Quizzes({ profile }: { profile: UserProfile }) {
                     </button>
                     <button
                       onClick={() => downloadQuizPDF(quiz)}
-                      className="px-4 py-4 bg-gray-50 text-gray-400 rounded-2xl font-black hover:bg-gray-100 hover:text-gray-700 transition-all flex items-center justify-center group/btn"
-                      title="Download PDF"
+                      disabled={isFuture}
+                      className="px-4 py-4 bg-gray-50 text-gray-400 rounded-2xl font-black hover:bg-gray-100 hover:text-gray-700 transition-all flex items-center justify-center group/btn disabled:bg-gray-100 disabled:text-gray-300 disabled:cursor-not-allowed"
+                      title={isFuture ? `Download opens at ${format(quiz.startTime!.toDate(), 'p')}` : 'Download PDF'}
                     >
                       <Download className="w-5 h-5 group-hover/btn:scale-110 transition-transform" />
                     </button>
