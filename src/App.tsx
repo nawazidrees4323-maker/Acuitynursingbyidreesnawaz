@@ -48,17 +48,7 @@ import VoucherDetail from './pages/VoucherDetail';
 import AboutAcademy from './pages/AboutAcademy';
 
 // Types
-export type UserRole = 'admin' | 'teacher' | 'student';
-
-export interface UserProfile {
-  uid: string;
-  name: string;
-  email: string;
-  role: UserRole;
-  status: 'pending' | 'approved' | 'rejected';
-  photoURL?: string;
-  createdAt: Timestamp;
-}
+import { UserRole, UserProfile } from './types';
 
 // Universal Error Boundary to catch all crashes
 function ErrorBoundary({ children }: { children: React.ReactNode }) {
@@ -358,6 +348,8 @@ export default function App() {
   const [pendingCount, setPendingCount] = useState(0);
   const [loading, setLoading] = useState(true);
 
+  const [profileError, setProfileError] = useState<string | null>(null);
+
   useEffect(() => {
     let unsubscribeProfile: (() => void) | undefined;
     let unsubscribePending: (() => void) | undefined;
@@ -366,6 +358,7 @@ export default function App() {
     const timeout = setTimeout(() => {
       if (loading) {
         console.warn("Auth setup timed out after 15s");
+        setProfileError("Authentication timeout: Profile could not be fetched within 15 seconds.");
         setLoading(false);
       }
     }, 15000);
@@ -416,13 +409,17 @@ export default function App() {
               }
             });
 
+            setProfileError(null);
             setLoading(false);
             clearTimeout(timeout);
           } catch (error) {
+            const errMsg = error instanceof Error ? error.message : String(error);
             console.error(`Auth setup error (attempt ${retryCount + 1}):`, error);
+            
             if (retryCount < 2) {
               setTimeout(() => fetchProfile(retryCount + 1), 2000);
             } else {
+              setProfileError(errMsg);
               setLoading(false);
               clearTimeout(timeout);
             }
@@ -433,6 +430,7 @@ export default function App() {
       } else {
         setUser(null);
         setProfile(null);
+        setProfileError(null);
         setPendingCount(0);
         setLoading(false);
         clearTimeout(timeout);
@@ -472,9 +470,17 @@ export default function App() {
           <AlertCircle className="w-10 h-10" />
         </div>
         <h1 className="text-3xl font-black text-gray-900 mb-4 tracking-tight">Profile Connection Error</h1>
-        <p className="text-gray-500 mb-8 font-medium max-w-md mx-auto">
+        <p className="text-gray-500 mb-4 font-medium max-w-md mx-auto">
           We're having trouble connecting to your profile. This usually happens due to a temporary network glitch or slow internet connection.
         </p>
+        
+        {profileError && (
+          <div className="mb-8 p-4 bg-white/50 border border-red-100 rounded-2xl text-[10px] font-mono text-red-400 max-w-md mx-auto overflow-auto">
+            <p className="font-bold uppercase tracking-widest mb-1 opacity-50">Error Log</p>
+            {profileError}
+          </div>
+        )}
+
         <div className="flex flex-col sm:flex-row gap-4">
           <button 
             onClick={() => window.location.reload()}

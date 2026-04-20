@@ -43,38 +43,8 @@ import {
   Line
 } from 'recharts';
 import { motion, AnimatePresence } from 'motion/react';
-import { UserProfile } from '../App';
+import { UserProfile, Quiz, Question } from '../types';
 import { format } from 'date-fns';
-
-interface Question {
-  id: string;
-  question: string;
-  options: string[];
-  correctAnswer: any; // Can be number, number[], boolean, or string
-  type: 'mcq' | 'multi-mcq' | 'true-false' | 'short-answer' | 'long-answer';
-  difficulty: 'easy' | 'medium' | 'hard';
-  topic: string;
-  explanation?: string;
-  imageUrl?: string;
-  keywords?: string[]; // For short answer auto-grading
-}
-
-interface Quiz {
-  id: string;
-  title: string;
-  courseId: string;
-  subjectId: string;
-  questions: Question[];
-  timeLimit: number;
-  attemptsLimit: number;
-  startTime?: Timestamp;
-  endTime?: Timestamp;
-  shuffleQuestions: boolean;
-  shuffleOptions: boolean;
-  preventBacktracking: boolean;
-  createdAt: Timestamp;
-  createdBy: string;
-}
 
 interface QuizAttempt {
   id: string;
@@ -113,6 +83,7 @@ export default function Quizzes({ profile }: { profile: UserProfile }) {
   const [markingResult, setMarkingResult] = useState<any>(null);
   const [seqMarks, setSeqMarks] = useState<number[]>([]);
   const [editingQuiz, setEditingQuiz] = useState<Quiz | null>(null);
+  const [currentTime, setCurrentTime] = useState(new Date());
 
   const isAdmin = profile.role === 'admin';
   const isTeacher = profile.role === 'teacher';
@@ -277,6 +248,14 @@ export default function Quizzes({ profile }: { profile: UserProfile }) {
       if (unsubscribeAttempts) unsubscribeAttempts();
     };
   }, [profile.role]);
+
+  // Update current time every second for countdowns
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setCurrentTime(new Date());
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
 
   const fetchQuizzes = async () => {
     setLoading(true);
@@ -478,6 +457,13 @@ export default function Quizzes({ profile }: { profile: UserProfile }) {
     }
   };
 
+  const formatDateForInput = (timestamp: Timestamp | null) => {
+    if (!timestamp) return '';
+    const date = timestamp.toDate();
+    const pad = (n: number) => n.toString().padStart(2, '0');
+    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  };
+
   const handleEditQuiz = (quiz: Quiz) => {
     setEditingQuiz(quiz);
     setNewQuiz({
@@ -486,8 +472,8 @@ export default function Quizzes({ profile }: { profile: UserProfile }) {
       subjectId: quiz.subjectId,
       timeLimit: quiz.timeLimit,
       attemptsLimit: quiz.attemptsLimit,
-      startTime: quiz.startTime ? new Date(quiz.startTime.toMillis()).toISOString().slice(0, 16) : '',
-      endTime: quiz.endTime ? new Date(quiz.endTime.toMillis()).toISOString().slice(0, 16) : '',
+      startTime: formatDateForInput(quiz.startTime || null),
+      endTime: formatDateForInput(quiz.endTime || null),
       shuffleQuestions: quiz.shuffleQuestions,
       shuffleOptions: quiz.shuffleOptions,
       preventBacktracking: quiz.preventBacktracking,
@@ -1772,10 +1758,19 @@ export default function Quizzes({ profile }: { profile: UserProfile }) {
             </div>
           ) : (
             quizzes.map((quiz) => {
-              const now = new Date();
-              const isOpen = (!quiz.startTime || now >= quiz.startTime.toDate()) && (!quiz.endTime || now <= quiz.endTime.toDate());
-              const isFuture = quiz.startTime && now < quiz.startTime.toDate();
-              const isExpired = quiz.endTime && now > quiz.endTime.toDate();
+              const isOpen = (!quiz.startTime || currentTime >= quiz.startTime.toDate()) && (!quiz.endTime || currentTime <= quiz.endTime.toDate());
+              const isFuture = quiz.startTime && currentTime < quiz.startTime.toDate();
+              const isExpired = quiz.endTime && currentTime > quiz.endTime.toDate();
+
+              // Calculate countdown for future quizzes
+              let countdownText = '';
+              if (isFuture) {
+                const diff = quiz.startTime!.toDate().getTime() - currentTime.getTime();
+                const hours = Math.floor(diff / (1000 * 60 * 60));
+                const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+                const seconds = Math.floor((diff % (1000 * 60)) / 1000);
+                countdownText = `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+              }
 
               return (
                 <motion.div
@@ -1784,9 +1779,12 @@ export default function Quizzes({ profile }: { profile: UserProfile }) {
                   className="bg-white p-8 rounded-[2rem] border border-gray-100 shadow-sm hover:shadow-xl transition-all group relative overflow-hidden"
                 >
                   {isFuture && (
-                    <div className="absolute top-4 right-4 bg-amber-50 text-amber-600 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest flex items-center gap-1.5 border border-amber-100 shadow-sm">
-                      <Clock className="w-3 h-3" />
-                      Starts {format(quiz.startTime?.toDate()!, 'MMM d, h:mm a')}
+                    <div className="absolute top-4 right-4 bg-amber-50 text-amber-600 px-4 py-2 rounded-2xl text-[11px] font-black uppercase tracking-widest flex flex-col items-center gap-0.5 border border-amber-100 shadow-sm">
+                      <div className="flex items-center gap-1">
+                        <Clock className="w-3.5 h-3.5" />
+                        <span>Opens In</span>
+                      </div>
+                      <span className="text-sm font-mono">{countdownText}</span>
                     </div>
                   )}
                   {isExpired && (
@@ -1820,7 +1818,7 @@ export default function Quizzes({ profile }: { profile: UserProfile }) {
                     )}
                   </div>
                   
-                  <h3 className="text-xl font-black text-gray-900 mb-2 leading-tight">{quiz.title}</h3>
+                  <h3 className="text-xl font-black text-gray-900 mb-2 leading-tight pr-24">{quiz.title}</h3>
                   <div className="flex items-center gap-4 mb-8">
                     <div className="flex items-center gap-1.5 text-gray-400 text-xs font-bold uppercase tracking-widest">
                       <Clock className="w-3.5 h-3.5" />
@@ -1839,7 +1837,7 @@ export default function Quizzes({ profile }: { profile: UserProfile }) {
                       className="flex-1 py-4 bg-gray-50 text-blue-600 rounded-2xl font-black hover:bg-blue-600 hover:text-white transition-all flex items-center justify-center gap-2 disabled:bg-gray-100 disabled:text-gray-400 disabled:cursor-not-allowed"
                     >
                       <Play className="w-5 h-5" />
-                      {isFuture ? 'Coming Soon' : isExpired ? 'Closed' : 'Start Quiz'}
+                      {isFuture ? 'Waiting...' : isExpired ? 'Closed' : 'Start Quiz'}
                     </button>
                     <button
                       onClick={() => downloadQuizPDF(quiz)}
@@ -2038,25 +2036,51 @@ export default function Quizzes({ profile }: { profile: UserProfile }) {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 p-6 bg-blue-50/50 rounded-[2rem] border border-blue-100/50">
+                  <div className="col-span-full">
+                    <div className="flex items-center gap-2 mb-3">
+                      <Calendar className="w-4 h-4 text-blue-600" />
+                      <h4 className="text-xs font-black text-blue-900 uppercase tracking-widest">Quiz Schedule Settings</h4>
+                    </div>
+                  </div>
                   <div>
-                    <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-2">Start Time (Optional)</label>
+                    <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-2 flex justify-between">
+                      <span>Start Time</span>
+                      {newQuiz.startTime && (
+                        <span className="text-blue-600 lowercase font-bold tracking-normal italic">
+                          Quiz will open at: {format(new Date(newQuiz.startTime), 'p, MMM d')}
+                        </span>
+                      )}
+                    </label>
                     <input 
                       type="datetime-local" 
-                      className="w-full px-5 py-4 bg-gray-50 border-none rounded-2xl focus:ring-2 focus:ring-blue-100 font-bold text-gray-900"
+                      className="w-full px-5 py-4 bg-white border-2 border-transparent focus:border-blue-600 rounded-2xl font-bold text-gray-900 shadow-sm transition-all"
                       value={newQuiz.startTime}
                       onChange={(e) => setNewQuiz({...newQuiz, startTime: e.target.value})}
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-2">End Time (Optional)</label>
+                    <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-2 flex justify-between">
+                      <span>End Time</span>
+                      {newQuiz.endTime && (
+                        <span className="text-red-500 lowercase font-bold tracking-normal italic">
+                          Quiz will close at: {format(new Date(newQuiz.endTime), 'p, MMM d')}
+                        </span>
+                      )}
+                    </label>
                     <input 
                       type="datetime-local" 
-                      className="w-full px-5 py-4 bg-gray-50 border-none rounded-2xl focus:ring-2 focus:ring-blue-100 font-bold text-gray-900"
+                      className="w-full px-5 py-4 bg-white border-2 border-transparent focus:border-blue-600 rounded-2xl font-bold text-gray-900 shadow-sm transition-all"
                       value={newQuiz.endTime}
                       onChange={(e) => setNewQuiz({...newQuiz, endTime: e.target.value})}
                     />
                   </div>
+                  {!newQuiz.startTime && (
+                    <div className="col-span-full flex items-center gap-2 text-[10px] text-gray-400 font-bold italic">
+                      <AlertCircle className="w-3 h-3" />
+                      If no start time is set, the quiz will be available immediately.
+                    </div>
+                  )}
                 </div>
 
                 <div className="flex flex-wrap gap-6 p-6 bg-gray-50 rounded-[2rem] border border-gray-100">
