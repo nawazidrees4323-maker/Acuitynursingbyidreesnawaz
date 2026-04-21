@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react';
-import { db, collection, onSnapshot, query, where, Timestamp } from '../lib/firebase';
-import { Users, BookOpen, Calendar, CreditCard, TrendingUp, UserCheck, UserPlus, BookCopy, ChevronRight } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import { db, collection, getDocs, query, where, limit, orderBy, Timestamp } from '../lib/firebase';
+import { Users, BookOpen, Calendar, CreditCard, TrendingUp, UserCheck, UserPlus, BookCopy, ChevronRight, RotateCw } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, PieChart, Pie } from 'recharts';
 import { motion } from 'motion/react';
 import { Link, useNavigate } from 'react-router-dom';
@@ -19,59 +19,62 @@ export default function AdminDashboard({ profile }: { profile: any }) {
 
   const [pendingUsers, setPendingUsers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  
+  // Use a ref to prevent re-fetching on every re-render unless explicitly needed
+  const initialized = useRef(false);
+
+  const fetchDashboardData = async (isManual = false) => {
+    if (isManual) setRefreshing(true);
+    else setLoading(true);
+
+    try {
+      // 1. Fetch Users Summary (Only first 100 for stats/pending)
+      const usersSnap = await getDocs(query(collection(db, 'users'), limit(100)));
+      const usersData = usersSnap.docs.map(doc => doc.data());
+      
+      const students = usersData.filter(u => u.role === 'student' || u.role === 'Student');
+      const teachers = usersData.filter(u => u.role === 'teacher' || u.role === 'Teacher');
+      const pending = usersData.filter(u => u.status === 'pending');
+
+      // 2. Fetch Courses Count
+      const coursesSnap = await getDocs(query(collection(db, 'courses'), limit(50)));
+      
+      // 3. Fetch Fees (Recent 50 only for revenue calculation)
+      const feesSnap = await getDocs(query(collection(db, 'fees'), limit(50)));
+      const revenue = feesSnap.docs
+        .map(doc => doc.data())
+        .filter(f => f.status === 'paid')
+        .reduce((acc, curr) => acc + (curr.amount || 0), 0);
+
+      // 4. Fetch Attendance (Recent 50)
+      const attendanceSnap = await getDocs(query(collection(db, 'attendance'), limit(50)));
+      const attendance = attendanceSnap.docs.map(doc => doc.data());
+      const presentCount = attendance.filter(a => a.status === 'present').length;
+      const avgAtt = attendance.length > 0 ? (presentCount / attendance.length) * 100 : 0;
+
+      setStats({
+        totalStudents: students.length,
+        totalTeachers: teachers.length,
+        totalCourses: coursesSnap.size,
+        activeAssignments: 0, // Placeholder
+        totalRevenue: revenue,
+        avgAttendance: Math.round(avgAtt)
+      });
+      setPendingUsers(pending);
+    } catch (error) {
+      console.error("Dashboard optimization error:", error);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  };
 
   useEffect(() => {
-    // Real-time users listener
-    const unsubUsers = onSnapshot(collection(db, 'users'), (snapshot) => {
-      const users = snapshot.docs.map(doc => doc.data());
-      const students = users.filter(u => u.role === 'student');
-      const teachers = users.filter(u => u.role === 'teacher');
-      const pending = users.filter(u => u.status === 'pending');
-      
-      setPendingUsers(pending);
-      setStats(prev => ({
-        ...prev,
-        totalStudents: students.length,
-        totalTeachers: teachers.length
-      }));
-      setLoading(false);
-    });
-
-    // Real-time courses listener
-    const unsubCourses = onSnapshot(collection(db, 'courses'), (snapshot) => {
-      setStats(prev => ({
-        ...prev,
-        totalCourses: snapshot.size
-      }));
-    });
-
-    // Real-time fees listener
-    const unsubFees = onSnapshot(collection(db, 'fees'), (snapshot) => {
-      const fees = snapshot.docs.map(doc => doc.data());
-      const revenue = fees.filter(f => f.status === 'paid').reduce((acc, curr) => acc + (curr.amount || 0), 0);
-      setStats(prev => ({
-        ...prev,
-        totalRevenue: revenue
-      }));
-    });
-
-    // Real-time attendance listener
-    const unsubAttendance = onSnapshot(collection(db, 'attendance'), (snapshot) => {
-      const attendance = snapshot.docs.map(doc => doc.data());
-      const presentCount = attendance.filter(a => a.status === 'present').length;
-      const avgAttendance = attendance.length > 0 ? (presentCount / attendance.length) * 100 : 0;
-      setStats(prev => ({
-        ...prev,
-        avgAttendance: Math.round(avgAttendance)
-      }));
-    });
-
-    return () => {
-      unsubUsers();
-      unsubCourses();
-      unsubFees();
-      unsubAttendance();
-    };
+    if (!initialized.current) {
+      fetchDashboardData();
+      initialized.current = true;
+    }
   }, []);
 
   const data = [

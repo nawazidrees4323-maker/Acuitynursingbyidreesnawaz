@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { db, collection, getDocs, setDoc, doc, deleteDoc, Timestamp, query, where, addDoc, onSnapshot, handleFirestoreError, OperationType } from '../lib/firebase';
+import React, { useState, useEffect, useRef } from 'react';
+import { db, collection, getDocs, setDoc, doc, deleteDoc, Timestamp, query, where, addDoc, onSnapshot, handleFirestoreError, OperationType, limit, orderBy } from '../lib/firebase';
 import { 
   BrainCircuit, 
   Plus, 
@@ -24,7 +24,8 @@ import {
   AlertCircle,
   Trophy,
   BookOpen,
-  Download
+  Download,
+  RotateCw
 } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import 'jspdf-autotable';
@@ -87,6 +88,7 @@ export default function Quizzes({ profile }: { profile: UserProfile }) {
 
   const isAdmin = profile.role === 'admin';
   const isTeacher = profile.role === 'teacher';
+  const initialized = useRef(false);
 
   // New Quiz Form State
   const [isBulkMode, setIsBulkMode] = useState(false);
@@ -210,43 +212,30 @@ export default function Quizzes({ profile }: { profile: UserProfile }) {
   };
 
   useEffect(() => {
+    if (initialized.current) return;
+    initialized.current = true;
+
     fetchQuizzes();
     fetchCourses();
     fetchSubjects();
     
-    let unsubscribeResults: (() => void) | undefined;
-    let unsubscribeAttempts: (() => void) | undefined;
-    
-    if (profile.status === 'approved') {
-      // Use onSnapshot for real-time analytics and leaderboard updates
-      const resultsQuery = query(collection(db, 'quiz_results'));
-      unsubscribeResults = onSnapshot(resultsQuery, (snapshot) => {
-        const results = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-        // Sort by date descending
-        results.sort((a: any, b: any) => {
-          const dateA = a.completedAt?.toDate() || 0;
-          const dateB = b.completedAt?.toDate() || 0;
-          return dateB - dateA;
-        });
+    const fetchDataOnDemand = async () => {
+      try {
+        const resultsSnap = await getDocs(query(collection(db, 'quiz_results'), limit(100), orderBy('completedAt', 'desc')));
+        const results = resultsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
         setAllResults(results);
-      }, (error) => {
-        console.error('Error fetching results:', error);
-      });
 
-      // Fetch attempts to track dropouts
-      const attemptsQuery = query(collection(db, 'quiz_attempts'));
-      unsubscribeAttempts = onSnapshot(attemptsQuery, (snapshot) => {
-        const attempts = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        const attemptsSnap = await getDocs(query(collection(db, 'quiz_attempts'), limit(100)));
+        const attempts = attemptsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
         setAllAttempts(attempts);
-      }, (error) => {
-        console.error('Error fetching attempts:', error);
-      });
-    }
-
-    return () => {
-      if (unsubscribeResults) unsubscribeResults();
-      if (unsubscribeAttempts) unsubscribeAttempts();
+      } catch (error) {
+        console.error("Error fetching data on demand:", error);
+      }
     };
+
+    if (profile.status === 'approved') {
+      fetchDataOnDemand();
+    }
   }, [profile.role]);
 
   // Update current time every second for countdowns
@@ -937,6 +926,14 @@ export default function Quizzes({ profile }: { profile: UserProfile }) {
           <p className="text-gray-500 font-medium">Test your knowledge and track progress</p>
         </div>
         <div className="flex flex-wrap gap-3">
+          <button 
+            onClick={fetchQuizzes}
+            disabled={loading}
+            className="p-3 bg-white border border-gray-100 rounded-2xl text-gray-500 hover:text-blue-600 hover:border-blue-100 transition-all disabled:opacity-50 group"
+            title="Refresh Data"
+          >
+            <RotateCw className={`w-5 h-5 ${loading ? 'animate-spin' : 'group-hover:rotate-180 transition-transform duration-500'}`} />
+          </button>
           <button 
             onClick={() => {
               const nextState = !showLeaderboard;

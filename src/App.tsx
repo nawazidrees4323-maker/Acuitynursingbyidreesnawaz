@@ -1,7 +1,7 @@
 // Forced update for navigation
 import React, { useEffect, useState } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, Link, useLocation, Outlet } from 'react-router-dom';
-import { auth, db, onAuthStateChanged, doc, getDoc, setDoc, Timestamp, FirebaseUser, onSnapshot, query, collection, where } from './lib/firebase';
+import { auth, db, onAuthStateChanged, doc, getDoc, setDoc, Timestamp, FirebaseUser, onSnapshot, query, collection, where, getDocFromCache, enableIndexedDbPersistence } from './lib/firebase';
 import { 
   Library,
   Info,
@@ -370,13 +370,30 @@ export default function App() {
       
       if (user) {
         setUser(user);
+        const docRef = doc(db, 'users', user.uid);
         
         const fetchProfile = async (retryCount = 0) => {
           try {
-            const docRef = doc(db, 'users', user.uid);
-            const docSnap = await getDoc(docRef);
-            
-            if (docSnap.exists()) {
+            // Optimization: Try Cache first to save quota/handle quota exceeded
+            let docSnap;
+            try {
+              // Try server first usually, but if quota is hit, this will fail
+              docSnap = await getDoc(docRef);
+            } catch (err: any) {
+              const errMsg = err?.message || String(err);
+              if (errMsg.includes('quota') || errMsg.includes('resource-exhausted')) {
+                console.warn("Quota exceeded, attempting to load profile from cache...");
+                try {
+                  docSnap = await getDocFromCache(docRef);
+                } catch (cacheErr) {
+                  throw err; // Re-throw the original quota error if cache also fails
+                }
+              } else {
+                throw err;
+              }
+            }
+
+            if (docSnap && docSnap.exists()) {
               const data = docSnap.data() as UserProfile;
               setProfile(data);
               
@@ -412,10 +429,28 @@ export default function App() {
             setProfileError(null);
             setLoading(false);
             clearTimeout(timeout);
-          } catch (error) {
-            const errMsg = error instanceof Error ? error.message : String(error);
+          } catch (error: any) {
+            const errMsg = error?.message || String(error);
             console.error(`Auth setup error (attempt ${retryCount + 1}):`, error);
             
+            // Check for Quota Exceeded error
+            if (errMsg.includes('quota-exceeded') || errMsg.includes('resource-exhausted') || errMsg.includes('Quota limit exceeded')) {
+              setProfileError(
+                <div>
+                  <p className="font-black text-red-600 mb-2">Google Firestore: Daily Limit Exceeded</p>
+                  <p className="text-gray-600 text-xs leading-relaxed">
+                    Aapki website ne rozana ki 50,000 free reads ki limit khatam kar di hai. 
+                    Ye limit rozana subah automatically reset ho jati hai. 
+                    <br/><br/>
+                    <b>Hal:</b> Intezar karein ya Firebase ko Blaze (paid) plan par upgrade karein.
+                  </p>
+                </div>
+              );
+              setLoading(false);
+              clearTimeout(timeout);
+              return;
+            }
+
             if (retryCount < 2) {
               setTimeout(() => fetchProfile(retryCount + 1), 2000);
             } else {

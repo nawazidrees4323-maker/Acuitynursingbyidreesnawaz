@@ -168,7 +168,7 @@ service cloud.firestore {
     }
 
     match /quizzes/{quizId} {
-      allow read: if isApproved() && (isAdmin() || isTeacher() || resource.data.startTime == null || resource.data.startTime <= request.time);
+      allow read: if isApproved();
       allow write: if isAdmin() || isTeacher();
     }
 
